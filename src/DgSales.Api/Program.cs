@@ -13,6 +13,8 @@ builder.Services.AddDbContext<SalesDbContext>(options => options.UseNpgsql(conne
 builder.Services.AddScoped<ILeadRepository, EfLeadRepository>();
 builder.Services.AddScoped<ICallJobRepository, EfCallJobRepository>();
 builder.Services.AddSingleton<ServiceAreaMatcher>();
+builder.Services.AddSingleton<GeneratorSizingService>();
+builder.Services.AddSingleton<QuotationEligibilityService>();
 
 var app = builder.Build();
 app.UseSwagger();
@@ -56,6 +58,15 @@ app.MapPost("/api/leads/{id:guid}/queue-call", async (Guid id, ILeadRepository r
     await repository.SaveChangesAsync(cancellationToken);
     return Results.Accepted($"/api/leads/{id}", new { lead, callJob, duplicate = false });
 });
+
+app.MapPost("/api/tools/sizing", (SizingRequest request, GeneratorSizingService sizing) =>
+{
+    var result = sizing.Calculate(request);
+    return result.RecommendedKva is null ? Results.BadRequest(result) : Results.Ok(result);
+});
+
+app.MapPost("/api/tools/quotation-eligibility", (QuotationEligibilityRequest request, QuotationEligibilityService eligibility) =>
+    Results.Ok(eligibility.Assess(request)));
 
 app.Run();
 

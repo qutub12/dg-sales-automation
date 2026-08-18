@@ -29,19 +29,21 @@ public sealed class Lead
     public string? City { get; private set; }
     public LeadSource Source { get; private set; }
     public string? SourceReference { get; private set; }
+    public bool IsInServiceArea { get; private set; }
     public LeadStatus Status { get; private set; } = LeadStatus.New;
     public PreferredLanguage PreferredLanguage { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAtUtc { get; private set; } = DateTimeOffset.UtcNow;
     public uint Version { get; private set; }
 
-    public static Lead Create(CreateLeadRequest request) => new()
+    public static Lead Create(CreateLeadRequest request, bool isInServiceArea = false) => new()
     {
         CustomerName = request.CustomerName.Trim(),
         Phone = NormalizePhone(request.Phone),
         City = request.City?.Trim(),
         Source = request.Source,
-        SourceReference = request.SourceReference?.Trim()
+        SourceReference = request.SourceReference?.Trim(),
+        IsInServiceArea = isInServiceArea
     };
 
     public void QueueCall()

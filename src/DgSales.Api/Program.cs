@@ -15,6 +15,8 @@ builder.Services.AddScoped<ICallJobRepository, EfCallJobRepository>();
 builder.Services.AddSingleton<ServiceAreaMatcher>();
 builder.Services.AddSingleton<GeneratorSizingService>();
 builder.Services.AddSingleton<QuotationEligibilityService>();
+builder.Services.AddSingleton<StandardQuotationCalculator>();
+builder.Services.AddSingleton<FollowUpScheduleService>();
 
 var app = builder.Build();
 app.UseSwagger();
@@ -67,6 +69,12 @@ app.MapPost("/api/tools/sizing", (SizingRequest request, GeneratorSizingService 
 
 app.MapPost("/api/tools/quotation-eligibility", (QuotationEligibilityRequest request, QuotationEligibilityService eligibility) =>
     Results.Ok(eligibility.Assess(request)));
+
+app.MapPost("/api/tools/standard-quotation", (StandardQuotationRequest request, StandardQuotationCalculator calculator) =>
+{
+    var result = calculator.Calculate(request);
+    return result.IsValid ? Results.Ok(result) : Results.BadRequest(result);
+});
 
 app.Run();
 

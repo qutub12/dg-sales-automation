@@ -21,15 +21,19 @@ public sealed record CreateLeadRequest(
 
 public sealed class Lead
 {
-    public Guid Id { get; init; } = Guid.NewGuid();
-    public required string CustomerName { get; init; }
-    public required string Phone { get; init; }
-    public string? City { get; init; }
-    public LeadSource Source { get; init; }
-    public string? SourceReference { get; init; }
+    private Lead() { }
+
+    public Guid Id { get; private set; } = Guid.NewGuid();
+    public string CustomerName { get; private set; } = string.Empty;
+    public string Phone { get; private set; } = string.Empty;
+    public string? City { get; private set; }
+    public LeadSource Source { get; private set; }
+    public string? SourceReference { get; private set; }
     public LeadStatus Status { get; private set; } = LeadStatus.New;
-    public PreferredLanguage PreferredLanguage { get; set; }
-    public DateTimeOffset CreatedAtUtc { get; init; } = DateTimeOffset.UtcNow;
+    public PreferredLanguage PreferredLanguage { get; private set; }
+    public DateTimeOffset CreatedAtUtc { get; private set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAtUtc { get; private set; } = DateTimeOffset.UtcNow;
+    public uint Version { get; private set; }
 
     public static Lead Create(CreateLeadRequest request) => new()
     {
@@ -45,6 +49,13 @@ public sealed class Lead
         if (Status is not LeadStatus.New and not LeadStatus.FollowUp)
             throw new InvalidOperationException($"A call cannot be queued while lead is {Status}.");
         Status = LeadStatus.CallQueued;
+        UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    public void SetPreferredLanguage(PreferredLanguage language)
+    {
+        PreferredLanguage = language;
+        UpdatedAtUtc = DateTimeOffset.UtcNow;
     }
 
     public static string NormalizePhone(string value)
@@ -53,4 +64,3 @@ public sealed class Lead
         return digits.Length == 10 ? $"+91{digits}" : $"+{digits}";
     }
 }
-

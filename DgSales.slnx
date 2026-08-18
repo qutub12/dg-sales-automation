@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/DgSales.Api/DgSales.Api.csproj" />
+  <Project Path="tests/DgSales.Domain.Tests/DgSales.Domain.Tests.csproj" />
+</Solution>

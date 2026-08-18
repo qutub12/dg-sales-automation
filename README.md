@@ -29,4 +29,6 @@ Voice-first sales automation for a diesel-generator business. The MVP captures I
 4. Run `dotnet run --project src/DgSales.Api`.
 5. Open `/swagger`.
 
+The API includes versioned EF Core migrations. Apply them explicitly during deployment, or run `dotnet ef database update --project src/DgSales.Api` for local development.
+
 Never commit production credentials. The existing mobile SIM remains the WhatsApp Business number. Automated calls use a telephony number with the verified business identity.

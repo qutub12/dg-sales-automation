@@ -30,3 +30,18 @@ Required secret configuration:
 - `Voice__PublicBaseUrl`
 - `Voice__WebhookSecret` (at least 32 characters)
 - `Voice__Enabled=true` only after the gateway is verified
+
+## Selected telephony provider: Exotel
+
+The MVP uses Exotel Voice v1 in the Mumbai region. The application calls the customer through an active
+Exotel flow using the business ExoPhone as caller ID. The flow must contain the required disclosure and
+VoiceBot applet. Exotel then opens a bidirectional WebSocket to the AI media bridge.
+
+Configure the account SID, API key/token, ExoPhone caller ID, active flow URL and a random callback token.
+The API key/token use HTTP Basic authentication and are never returned by application endpoints.
+`Voice__Enabled` remains false until the Exotel account, flow and media bridge have been tested.
+
+The status callback handles `failed`, `busy` and `no-answer`; successful conversational output still
+arrives through the signed structured-result webhook. Exotel recommends using its Call Details API as a
+fallback because status callback delivery can be delayed or fail; that reconciliation job remains a
+deployment-hardening task.

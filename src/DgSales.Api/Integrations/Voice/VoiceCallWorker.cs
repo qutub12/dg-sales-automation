@@ -37,7 +37,7 @@ public sealed class VoiceCallWorker(
         {
             var baseUrl = configuration["Voice:PublicBaseUrl"]?.TrimEnd('/')
                 ?? throw new InvalidOperationException("Voice:PublicBaseUrl is required.");
-            var webhook = new Uri($"{baseUrl}/api/webhooks/voice/call-result");
+            var webhook = BuildStatusWebhook(baseUrl);
             var language = lead.PreferredLanguage switch
             {
                 PreferredLanguage.Hindi => "Hindi",
@@ -56,5 +56,15 @@ public sealed class VoiceCallWorker(
             logger.LogWarning(exception, "Starting voice call {CallJobId} failed.", job.Id);
         }
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private Uri BuildStatusWebhook(string baseUrl)
+    {
+        if (!string.Equals(configuration["Voice:Provider"], "Exotel", StringComparison.OrdinalIgnoreCase))
+            return new Uri($"{baseUrl}/api/webhooks/voice/call-result");
+        var token = configuration["Voice:Exotel:CallbackToken"];
+        if (string.IsNullOrWhiteSpace(token) || token.Length < 32)
+            throw new InvalidOperationException("Voice:Exotel:CallbackToken must contain at least 32 characters.");
+        return new Uri($"{baseUrl}/api/webhooks/voice/exotel-status?token={Uri.EscapeDataString(token)}");
     }
 }

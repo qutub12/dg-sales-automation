@@ -29,7 +29,12 @@ builder.Services.AddHttpClient<IWhatsAppProvider, MetaWhatsAppProvider>(client =
 builder.Services.AddHostedService<WhatsAppDeliveryWorker>();
 builder.Services.AddSingleton<VoiceAgentInstructions>();
 builder.Services.AddSingleton<VoiceWebhookSignatureService>();
-builder.Services.AddHttpClient<IVoiceCallProvider, HttpVoiceCallProvider>();
+builder.Services.AddHttpClient<HttpVoiceCallProvider>();
+builder.Services.AddHttpClient<ExotelVoiceCallProvider>();
+builder.Services.AddTransient<IVoiceCallProvider>(services =>
+    string.Equals(builder.Configuration["Voice:Provider"], "Exotel", StringComparison.OrdinalIgnoreCase)
+        ? services.GetRequiredService<ExotelVoiceCallProvider>()
+        : services.GetRequiredService<HttpVoiceCallProvider>());
 builder.Services.AddHostedService<VoiceCallWorker>();
 
 var app = builder.Build();
@@ -241,6 +246,30 @@ app.MapPost("/api/webhooks/voice/call-result", async (
     return Results.Ok(new { duplicate = false });
 });
 
+app.MapPost("/api/webhooks/voice/exotel-status", async (
+    HttpRequest request, SalesDbContext db, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    var expectedToken = configuration["Voice:Exotel:CallbackToken"];
+    if (string.IsNullOrWhiteSpace(expectedToken)
+        || !string.Equals(request.Query["token"].ToString(), expectedToken, StringComparison.Ordinal))
+        return Results.Unauthorized();
+
+    var payload = await System.Text.Json.JsonSerializer.DeserializeAsync<ExotelStatusCallback>(
+        request.Body, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web), cancellationToken);
+    if (payload is null || string.IsNullOrWhiteSpace(payload.CallSid)) return Results.BadRequest();
+    var job = await db.CallJobs.SingleOrDefaultAsync(x => x.ProviderCallId == payload.CallSid, cancellationToken);
+    if (job is null) return Results.NotFound();
+    var status = payload.Status.ToLowerInvariant();
+    if (status is "failed" or "busy" or "no-answer")
+    {
+        job.MarkFailed($"Exotel call ended with {status}.", false, DateTimeOffset.UtcNow);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+    return Results.Ok();
+});
+
 app.Run();
 
 public partial class Program;
+
+public sealed record ExotelStatusCallback(string CallSid, string Status, string? CustomField, int? ConversationDuration);

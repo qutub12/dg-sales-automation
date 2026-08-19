@@ -8,17 +8,18 @@ Configure `LeadIntake__IndiaMart__*` values and then set `ENABLED=true`. For Gma
 
 Keep the mailbox password in deployment secrets. Do not commit it. Review the first few messages in `inbound_lead_messages` before leaving automation unattended because IndiaMART email layouts can change.
 
-## Justdial WhatsApp
+## Justdial portal collector
 
-This uses the same Meta WhatsApp Cloud API app as quotation delivery. Configure:
+Justdial WhatsApp notifications do not contain the complete buyer details for this account. Until Justdial provides its promised API credentials, the application can read the authenticated business lead portal with Playwright. This is an interim adapter and must be used only with the business's own account and in accordance with its Justdial agreement.
 
-- `WhatsApp__AppSecret` with the Meta app secret.
-- `WhatsApp__WebhookVerifyToken` with a new random secret.
-- Meta callback URL: `https://YOUR_PUBLIC_HOST/api/webhooks/whatsapp`.
-- `LeadIntake__Justdial__AllowedSenderNumbers__0` with the exact WhatsApp sender number used by Justdial.
-- Set `LeadIntake__Justdial__Enabled=true` only after webhook verification succeeds.
+1. Install the browser once after publishing: `pwsh bin/Release/net10.0/playwright.ps1 install chromium` (Linux containers may use `install --with-deps chromium`).
+2. Set `PortalUrl`, `BrowserProfilePath`, and the four selectors. Use Playwright codegen or browser developer tools against your own portal to obtain stable selectors; prefer `data-*`, role, or test-id attributes over CSS class names.
+3. On a trusted desktop, set `Headless=false` and `PortalEnabled=true`, then start the API. Complete Justdial login/OTP in the browser that opens. The persistent profile saves the authenticated cookies. Stop the API after the lead page loads.
+4. Set `Headless=true`, keep the profile directory on an encrypted persistent volume, and restart. The worker checks the newest leads every five minutes.
 
-POST requests require Meta's `X-Hub-Signature-256` signature. Messages from any number outside the allowlist are acknowledged but ignored, preventing normal customer chats from being imported as Justdial leads.
+The worker does not store a Justdial password, bypass OTP/CAPTCHA, or call private endpoints. It hashes the portal lead identifier for idempotency and feeds the visible lead text into the normal parser. A changed page layout or expired session stops collection and emits an operational error instead of guessing. Run only one portal worker instance because a persistent Chromium profile cannot be safely shared by multiple processes.
+
+The earlier verified WhatsApp webhook remains available as an optional notification trigger, but `LeadIntake__Justdial__Enabled` should remain false unless the configured Justdial sender actually includes parseable lead details.
 
 ## Operations and privacy
 

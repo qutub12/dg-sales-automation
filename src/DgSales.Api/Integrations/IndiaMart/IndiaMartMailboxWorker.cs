@@ -34,6 +34,8 @@ public sealed class IndiaMartMailboxWorker(IServiceScopeFactory scopes, IConfigu
             if (!message.From.ToString().Contains(senderFilter, StringComparison.OrdinalIgnoreCase)
                 || !(message.Subject ?? "").Contains(subjectFilter, StringComparison.OrdinalIgnoreCase)) continue;
             var body = message.TextBody ?? StripHtml(message.HtmlBody ?? "");
+            var buyerName = message.ReplyTo.Mailboxes.FirstOrDefault()?.Name ?? message.From.Mailboxes.FirstOrDefault()?.Name;
+            if (!string.IsNullOrWhiteSpace(buyerName)) body = $"Name: {buyerName}\n{body}";
             var externalId = string.IsNullOrWhiteSpace(message.MessageId) ? $"imap:{folder.FullName}:{uid.Id}" : message.MessageId;
             await using var scope = scopes.CreateAsyncScope();
             await scope.ServiceProvider.GetRequiredService<InboundLeadProcessor>().ProcessAsync(

@@ -18,6 +18,15 @@ public sealed class LeadMessageParserTests
     }
 
     [Fact]
+    public void ParsesCurrentIndiaMartEmailLabels()
+    {
+        var result = parser.Parse("Name: Sample Buyer\nPower (kVA) : 7.5 kVA\nBrand : Kirloskar\nProbable Requirement Type : Business Use\nCity: Chandrapur\nMobile: +91-9876543210");
+        Assert.Equal("Sample Buyer", result.CustomerName);
+        Assert.Equal("9876543210", result.Phone);
+        Assert.Equal("7.5 kVA", result.Product);
+    }
+
+    [Fact]
     public void DoesNotGuessWhenTwoPhonesArePresent()
     {
         var result = parser.Parse("Please call 9876543210 or 9123456789 regarding a generator.");

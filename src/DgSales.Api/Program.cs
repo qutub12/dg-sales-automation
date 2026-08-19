@@ -3,6 +3,7 @@ using DgSales.Api.Domain;
 using DgSales.Api.Infrastructure;
 using DgSales.Api.Integrations.WhatsApp;
 using DgSales.Api.Integrations.IndiaMart;
+using DgSales.Api.Integrations.Justdial;
 using DgSales.Api.Integrations.Voice;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,6 +19,7 @@ builder.Services.AddScoped<ICallJobRepository, EfCallJobRepository>();
 builder.Services.AddSingleton<LeadMessageParser>();
 builder.Services.AddScoped<InboundLeadProcessor>();
 builder.Services.AddHostedService<IndiaMartMailboxWorker>();
+builder.Services.AddHostedService<JustdialPortalWorker>();
 builder.Services.AddSingleton<ServiceAreaMatcher>();
 builder.Services.AddSingleton<GeneratorSizingService>();
 builder.Services.AddSingleton<QuotationEligibilityService>();

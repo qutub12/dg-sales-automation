@@ -1,6 +1,6 @@
 namespace DgSales.Api.Domain;
 
-public enum InboundLeadChannel { IndiaMartEmail, JustdialWhatsApp }
+public enum InboundLeadChannel { IndiaMartEmail, JustdialWhatsApp, JustdialPortal }
 public enum InboundLeadStatus { Received, LeadCreated, DuplicateLead, ReviewRequired, Failed }
 
 public sealed class InboundLeadMessage

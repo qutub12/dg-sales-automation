@@ -36,8 +36,10 @@ builder.Services.AddTransient<IVoiceCallProvider>(services =>
         ? services.GetRequiredService<ExotelVoiceCallProvider>()
         : services.GetRequiredService<HttpVoiceCallProvider>());
 builder.Services.AddHostedService<VoiceCallWorker>();
+builder.Services.AddSingleton<OpenAiRealtimeVoiceBridge>();
 
 var app = builder.Build();
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
 app.UseSwagger();
 app.UseSwaggerUI();
 
@@ -266,6 +268,34 @@ app.MapPost("/api/webhooks/voice/exotel-status", async (
         await db.SaveChangesAsync(cancellationToken);
     }
     return Results.Ok();
+});
+
+app.Map("/api/voice/exotel-media", async (
+    HttpContext context, IConfiguration configuration, OpenAiRealtimeVoiceBridge bridge) =>
+{
+    if (!configuration.GetValue<bool>("Voice:Realtime:Enabled"))
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        return;
+    }
+    if (!context.WebSockets.IsWebSocketRequest)
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        return;
+    }
+    var username = configuration["Voice:Realtime:MediaUsername"];
+    var password = configuration["Voice:Realtime:MediaPassword"];
+    var expected = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{username}:{password}"));
+    var supplied = context.Request.Headers.Authorization.ToString();
+    if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password)
+        || !string.Equals(supplied, $"Basic {expected}", StringComparison.Ordinal))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    using var socket = await context.WebSockets.AcceptWebSocketAsync();
+    await bridge.RunAsync(socket, context.RequestAborted);
 });
 
 app.Run();

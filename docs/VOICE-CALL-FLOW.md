@@ -45,3 +45,23 @@ The status callback handles `failed`, `busy` and `no-answer`; successful convers
 arrives through the signed structured-result webhook. Exotel recommends using its Call Details API as a
 fallback because status callback delivery can be delayed or fail; that reconciliation job remains a
 deployment-hardening task.
+
+## Realtime media bridge
+
+The `/api/voice/exotel-media` WebSocket bridges Exotel AgentStream to the OpenAI Realtime API. Configure
+the Exotel VoiceBot applet for bidirectional raw PCM at 24 kHz and protect the WSS endpoint with the
+configured Basic-auth username/password. Audio stays at 24 kHz in both directions, avoiding resampling.
+
+The bridge:
+
+- sends Exotel media frames as `input_audio_buffer.append` events;
+- returns `response.output_audio.delta` frames immediately to the phone call;
+- uses semantic voice-activity detection;
+- sends Exotel `clear` when the customer interrupts the assistant;
+- starts with the automation disclosure and language preference;
+- limits sessions to ten minutes by default and rejects messages over 2 MB;
+- keeps the OpenAI API key only on the server.
+
+Keep both `Voice__Enabled` and `Voice__Realtime__Enabled` false until the Exotel flow, WSS authentication,
+24 kHz setting and a non-production test number are verified. The next hardening slice will process the
+Realtime tool result into the signed structured requirement callback and add call-cost/latency telemetry.

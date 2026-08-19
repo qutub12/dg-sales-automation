@@ -60,6 +60,24 @@ public sealed class Lead
         UpdatedAtUtc = DateTimeOffset.UtcNow;
     }
 
+    public void MarkQualified()
+    {
+        Status = LeadStatus.Qualified;
+        UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    public void MarkQuotationPending()
+    {
+        Status = LeadStatus.QuotationPending;
+        UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    public void MarkEscalated()
+    {
+        Status = LeadStatus.Escalated;
+        UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
+
     public static string NormalizePhone(string value)
     {
         var digits = new string(value.Where(char.IsDigit).ToArray());

@@ -37,6 +37,7 @@ builder.Services.AddTransient<IVoiceCallProvider>(services =>
         : services.GetRequiredService<HttpVoiceCallProvider>());
 builder.Services.AddHostedService<VoiceCallWorker>();
 builder.Services.AddSingleton<OpenAiRealtimeVoiceBridge>();
+builder.Services.AddScoped<VoiceRequirementToolService>();
 
 var app = builder.Build();
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });

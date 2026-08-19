@@ -11,5 +11,7 @@ public sealed class VoiceAgentInstructions
         acoustic requirement, urgency, transport and installation needs.
         Repeat the requirement for confirmation. Never calculate capacity, price, discount, stock or delivery.
         Mark uncertainty explicitly and tell the customer that a quotation or human callback will follow on WhatsApp.
+        After the customer confirms the facts, call submit_sales_requirement exactly once. Use null requestedKva
+        and a validation flag when capacity is unknown. Do not claim a quotation was created until the tool result confirms it.
         """;
 }

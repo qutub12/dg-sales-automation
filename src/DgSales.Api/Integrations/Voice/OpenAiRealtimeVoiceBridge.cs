@@ -8,6 +8,7 @@ namespace DgSales.Api.Integrations.Voice;
 public sealed class OpenAiRealtimeVoiceBridge(
     IConfiguration configuration,
     VoiceAgentInstructions instructions,
+    IServiceScopeFactory scopeFactory,
     ILogger<OpenAiRealtimeVoiceBridge> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -44,7 +45,45 @@ public sealed class OpenAiRealtimeVoiceBridge(
                     },
                     output = new { format = new { type = "audio/pcm" }, voice }
                 },
-                instructions = instructions.Build("Hindi, with natural English and Marathi switching")
+                instructions = instructions.Build("Hindi, with natural English and Marathi switching"),
+                tools = new[]
+                {
+                    new
+                    {
+                        type = "function",
+                        name = "submit_sales_requirement",
+                        description = "Submit only the customer-confirmed generator requirement. The server decides sizing, price and quotation eligibility.",
+                        parameters = new
+                        {
+                            type = "object",
+                            additionalProperties = false,
+                            properties = new
+                            {
+                                requestedKva = new { type = new[] { "number", "null" } },
+                                phaseCount = new { type = "integer", @enum = new[] { 1, 3 } },
+                                preferredBrand = new { type = new[] { "string", "null" } },
+                                application = new { type = "string" },
+                                installationLocation = new { type = "string" },
+                                sizingConfirmed = new { type = "boolean" },
+                                customDiscountRequested = new { type = "boolean" },
+                                nonStandardTermsRequested = new { type = "boolean" },
+                                deliveryPromiseRequired = new { type = "boolean" },
+                                validationFlags = new { type = "array", items = new { type = "string" } },
+                                automationDisclosed = new { type = "boolean" },
+                                recordingConsentGiven = new { type = "boolean" },
+                                detectedLanguage = new { type = "string", @enum = new[] { "Hindi", "English", "Marathi", "Mixed" } }
+                            },
+                            required = new[]
+                            {
+                                "requestedKva", "phaseCount", "preferredBrand", "application", "installationLocation",
+                                "sizingConfirmed", "customDiscountRequested", "nonStandardTermsRequested",
+                                "deliveryPromiseRequired", "validationFlags", "automationDisclosed",
+                                "recordingConsentGiven", "detectedLanguage"
+                            }
+                        }
+                    }
+                },
+                tool_choice = "auto"
             }
         }, cancellationToken);
 
@@ -61,9 +100,10 @@ public sealed class OpenAiRealtimeVoiceBridge(
         await SendJsonAsync(realtime, new { type = "response.create" }, cancellationToken);
 
         string? streamSid = null;
+        string? providerCallId = null;
         using var completed = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var inbound = PumpExotelToRealtimeAsync(exotel, realtime, value => streamSid = value, completed.Token);
-        var outbound = PumpRealtimeToExotelAsync(realtime, exotel, () => streamSid, completed.Token);
+        var inbound = PumpExotelToRealtimeAsync(exotel, realtime, (stream, call) => { streamSid = stream; providerCallId = call; }, completed.Token);
+        var outbound = PumpRealtimeToExotelAsync(realtime, exotel, () => streamSid, () => providerCallId, completed.Token);
         await Task.WhenAny(inbound, outbound);
         completed.Cancel();
         try { await Task.WhenAll(inbound, outbound); } catch (OperationCanceledException) { }
@@ -73,7 +113,7 @@ public sealed class OpenAiRealtimeVoiceBridge(
     }
 
     private async Task PumpExotelToRealtimeAsync(
-        WebSocket exotel, WebSocket realtime, Action<string> setStreamSid, CancellationToken cancellationToken)
+        WebSocket exotel, WebSocket realtime, Action<string, string> setSessionIds, CancellationToken cancellationToken)
     {
         while (exotel.State == WebSocketState.Open && realtime.State == WebSocketState.Open)
         {
@@ -88,7 +128,9 @@ public sealed class OpenAiRealtimeVoiceBridge(
                 var streamSid = GetString(start, "stream_sid") ?? GetString(start, "streamSid")
                     ?? throw new InvalidOperationException("Exotel start event did not contain stream SID.");
                 ValidateMediaFormat(start);
-                setStreamSid(streamSid);
+                var callSid = GetString(start, "call_sid") ?? GetString(start, "callSid")
+                    ?? throw new InvalidOperationException("Exotel start event did not contain call SID.");
+                setSessionIds(streamSid, callSid);
             }
             else if (eventType == "media")
             {
@@ -101,7 +143,7 @@ public sealed class OpenAiRealtimeVoiceBridge(
     }
 
     private async Task PumpRealtimeToExotelAsync(
-        WebSocket realtime, WebSocket exotel, Func<string?> getStreamSid, CancellationToken cancellationToken)
+        WebSocket realtime, WebSocket exotel, Func<string?> getStreamSid, Func<string?> getProviderCallId, CancellationToken cancellationToken)
     {
         long sequence = 1;
         while (realtime.State == WebSocketState.Open && exotel.State == WebSocketState.Open)
@@ -130,11 +172,50 @@ public sealed class OpenAiRealtimeVoiceBridge(
             {
                 await SendJsonAsync(exotel, new { @event = "clear", stream_sid = streamSid }, cancellationToken);
             }
+            else if (eventType == "response.done")
+            {
+                await HandleToolCallsAsync(root, realtime, getProviderCallId(), cancellationToken);
+            }
             else if (eventType == "error")
             {
                 logger.LogError("Realtime voice session error: {Error}", message);
                 throw new InvalidOperationException("Realtime voice session failed.");
             }
+        }
+    }
+
+    private async Task HandleToolCallsAsync(
+        JsonElement root, WebSocket realtime, string? providerCallId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(providerCallId)
+            || !root.TryGetProperty("response", out var response)
+            || !response.TryGetProperty("output", out var output)) return;
+        foreach (var item in output.EnumerateArray())
+        {
+            if (GetString(item, "type") != "function_call" || GetString(item, "name") != "submit_sales_requirement") continue;
+            var callId = GetString(item, "call_id");
+            var arguments = GetString(item, "arguments");
+            if (string.IsNullOrWhiteSpace(callId) || string.IsNullOrWhiteSpace(arguments)) continue;
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var tool = scope.ServiceProvider.GetRequiredService<VoiceRequirementToolService>();
+            VoiceRequirementToolResult result;
+            try { result = await tool.ExecuteAsync(providerCallId, arguments, cancellationToken); }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "Voice requirement tool failed for call {ProviderCallId}.", providerCallId);
+                result = new(false, "review_required", null, ["The requirement could not be processed automatically."]);
+            }
+            await SendJsonAsync(realtime, new
+            {
+                type = "conversation.item.create",
+                item = new
+                {
+                    type = "function_call_output",
+                    call_id = callId,
+                    output = JsonSerializer.Serialize(result, JsonOptions)
+                }
+            }, cancellationToken);
+            await SendJsonAsync(realtime, new { type = "response.create" }, cancellationToken);
         }
     }
 

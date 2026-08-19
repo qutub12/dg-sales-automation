@@ -41,8 +41,9 @@ Configure the account SID, API key/token, ExoPhone caller ID, active flow URL an
 The API key/token use HTTP Basic authentication and are never returned by application endpoints.
 `Voice__Enabled` remains false until the Exotel account, flow and media bridge have been tested.
 
-The status callback handles `failed`, `busy` and `no-answer`; successful conversational output still
-arrives through the signed structured-result webhook. Exotel recommends using its Call Details API as a
+The status callback handles `failed`, `busy` and `no-answer`; successful conversational output is handled
+by the realtime structured-completion tool. The signed result webhook remains available for other voice
+gateways. Exotel recommends using its Call Details API as a
 fallback because status callback delivery can be delayed or fail; that reconciliation job remains a
 deployment-hardening task.
 
@@ -63,5 +64,22 @@ The bridge:
 - keeps the OpenAI API key only on the server.
 
 Keep both `Voice__Enabled` and `Voice__Realtime__Enabled` false until the Exotel flow, WSS authentication,
-24 kHz setting and a non-production test number are verified. The next hardening slice will process the
-Realtime tool result into the signed structured requirement callback and add call-cost/latency telemetry.
+24 kHz setting and a non-production test number are verified. Call-cost and latency telemetry remain a
+deployment-hardening task.
+
+## Structured completion tool
+
+After repeating the requirement and receiving confirmation, the realtime model calls
+`submit_sales_requirement` exactly once. The JSON schema requires capacity, phase, application, location,
+commercial exceptions, validation flags, disclosure/consent state and detected language.
+
+The model only supplies facts. Server-side code then:
+
+1. validates and persists the requirement and call result;
+2. stores the detected Hindi, English, Marathi or mixed language;
+3. checks for an active privately approved price and all quotation guardrails;
+4. creates an immutable quotation and queues WhatsApp delivery when eligible; or
+5. marks the lead escalated and returns the review reasons to the voice agent.
+
+Unknown capacity is submitted as `null` with a validation flag and is always escalated; the model is never
+allowed to estimate kVA. Duplicate tool calls are idempotent through the unique call-result constraint.

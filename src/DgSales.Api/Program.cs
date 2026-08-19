@@ -17,6 +17,7 @@ builder.Services.AddSingleton<GeneratorSizingService>();
 builder.Services.AddSingleton<QuotationEligibilityService>();
 builder.Services.AddSingleton<StandardQuotationCalculator>();
 builder.Services.AddSingleton<FollowUpScheduleService>();
+builder.Services.AddSingleton<ReferenceCatalogueService>();
 
 var app = builder.Build();
 app.UseSwagger();
@@ -75,6 +76,8 @@ app.MapPost("/api/tools/standard-quotation", (StandardQuotationRequest request, 
     var result = calculator.Calculate(request);
     return result.IsValid ? Results.Ok(result) : Results.BadRequest(result);
 });
+
+app.MapGet("/api/reference/catalogue/technical", (ReferenceCatalogueService catalogue) => catalogue.GetTechnical());
 
 app.Run();
 

@@ -2,6 +2,7 @@ using DgSales.Api.Application;
 using DgSales.Api.Domain;
 using DgSales.Api.Infrastructure;
 using DgSales.Api.Integrations.WhatsApp;
+using DgSales.Api.Integrations.IndiaMart;
 using DgSales.Api.Integrations.Voice;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,6 +15,9 @@ var connectionString = builder.Configuration.GetConnectionString("SalesDatabase"
 builder.Services.AddDbContext<SalesDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddScoped<ILeadRepository, EfLeadRepository>();
 builder.Services.AddScoped<ICallJobRepository, EfCallJobRepository>();
+builder.Services.AddSingleton<LeadMessageParser>();
+builder.Services.AddScoped<InboundLeadProcessor>();
+builder.Services.AddHostedService<IndiaMartMailboxWorker>();
 builder.Services.AddSingleton<ServiceAreaMatcher>();
 builder.Services.AddSingleton<GeneratorSizingService>();
 builder.Services.AddSingleton<QuotationEligibilityService>();
@@ -27,6 +31,7 @@ builder.Services.AddSingleton<QuotationDocumentTokenService>();
 builder.Services.AddHttpClient<IWhatsAppProvider, MetaWhatsAppProvider>(client =>
     client.BaseAddress = new Uri("https://graph.facebook.com/"));
 builder.Services.AddHostedService<WhatsAppDeliveryWorker>();
+builder.Services.AddSingleton<WhatsAppWebhookService>();
 builder.Services.AddSingleton<VoiceAgentInstructions>();
 builder.Services.AddSingleton<VoiceWebhookSignatureService>();
 builder.Services.AddHttpClient<HttpVoiceCallProvider>();
@@ -45,6 +50,32 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+app.MapGet("/api/webhooks/whatsapp", (HttpRequest request, IConfiguration configuration) =>
+{
+    var valid = request.Query["hub.mode"] == "subscribe"
+        && !string.IsNullOrWhiteSpace(configuration["WhatsApp:WebhookVerifyToken"])
+        && request.Query["hub.verify_token"] == configuration["WhatsApp:WebhookVerifyToken"];
+    return valid ? Results.Text(request.Query["hub.challenge"].ToString(), "text/plain") : Results.Unauthorized();
+});
+
+app.MapPost("/api/webhooks/whatsapp", async (HttpRequest request, WhatsAppWebhookService webhook,
+    IConfiguration configuration, IServiceScopeFactory scopes, CancellationToken cancellationToken) =>
+{
+    using var buffer = new MemoryStream();
+    await request.Body.CopyToAsync(buffer, cancellationToken);
+    var body = buffer.ToArray();
+    if (!webhook.Verify(body, request.Headers["X-Hub-Signature-256"].FirstOrDefault())) return Results.Unauthorized();
+    if (!configuration.GetValue<bool>("LeadIntake:Justdial:Enabled")) return Results.Ok();
+    var allowed = configuration.GetSection("LeadIntake:Justdial:AllowedSenderNumbers").Get<string[]>() ?? [];
+    var allowedDigits = allowed.Select(x => new string(x.Where(char.IsDigit).ToArray())).ToHashSet(StringComparer.Ordinal);
+    foreach (var message in webhook.ReadMessages(body).Where(x => allowedDigits.Contains(new string(x.From.Where(char.IsDigit).ToArray()))))
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<InboundLeadProcessor>().ProcessAsync(
+            InboundLeadChannel.JustdialWhatsApp, message.Id, message.From, null, message.Text, cancellationToken);
+    }
+    return Results.Ok();
+});
 app.MapGet("/health/ready", async (SalesDbContext db, CancellationToken cancellationToken) =>
     await db.Database.CanConnectAsync(cancellationToken)
         ? Results.Ok(new { status = "ready" })
@@ -69,6 +100,13 @@ app.MapGet("/api/leads", (ILeadRepository repository, CancellationToken cancella
     repository.ListAsync(cancellationToken));
 app.MapGet("/api/leads/{id:guid}", async (Guid id, ILeadRepository repository, CancellationToken cancellationToken) =>
     await repository.GetAsync(id, cancellationToken) is { } lead ? Results.Ok(lead) : Results.NotFound());
+
+app.MapGet("/api/inbound-leads/review", async (SalesDbContext db, CancellationToken cancellationToken) =>
+    Results.Ok(await db.InboundLeadMessages.AsNoTracking()
+        .Where(x => x.Status == InboundLeadStatus.ReviewRequired)
+        .OrderByDescending(x => x.ReceivedAtUtc)
+        .Select(x => new { x.Id, x.Channel, x.Sender, x.Subject, x.ProcessingNote, x.ReceivedAtUtc })
+        .Take(100).ToListAsync(cancellationToken)));
 
 app.MapPost("/api/leads/{id:guid}/queue-call", async (Guid id, ILeadRepository repository, ICallJobRepository callJobs, CancellationToken cancellationToken) =>
 {

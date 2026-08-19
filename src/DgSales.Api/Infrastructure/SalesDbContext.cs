@@ -11,6 +11,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     public DbSet<Quotation> Quotations => Set<Quotation>();
     public DbSet<WhatsAppDeliveryJob> WhatsAppDeliveryJobs => Set<WhatsAppDeliveryJob>();
     public DbSet<VoiceCallResult> VoiceCallResults => Set<VoiceCallResult>();
+    public DbSet<InboundLeadMessage> InboundLeadMessages => Set<InboundLeadMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -120,5 +121,21 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         callResult.Property(x => x.RecordingConsentGiven).HasColumnName("recording_consent_given");
         callResult.Property(x => x.Transcript).HasColumnName("transcript");
         callResult.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
+
+        var inbound = modelBuilder.Entity<InboundLeadMessage>();
+        inbound.ToTable("inbound_lead_messages");
+        inbound.HasKey(x => x.Id);
+        inbound.Property(x => x.Id).HasColumnName("id");
+        inbound.Property(x => x.Channel).HasColumnName("channel").HasConversion<string>().HasMaxLength(40);
+        inbound.Property(x => x.ExternalMessageId).HasColumnName("external_message_id").HasMaxLength(300);
+        inbound.HasIndex(x => new { x.Channel, x.ExternalMessageId }).IsUnique();
+        inbound.Property(x => x.Sender).HasColumnName("sender").HasMaxLength(300);
+        inbound.Property(x => x.Subject).HasColumnName("subject").HasMaxLength(500);
+        inbound.Property(x => x.RawText).HasColumnName("raw_text");
+        inbound.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(40);
+        inbound.Property(x => x.LeadId).HasColumnName("lead_id");
+        inbound.Property(x => x.ProcessingNote).HasColumnName("processing_note").HasMaxLength(1000);
+        inbound.Property(x => x.ReceivedAtUtc).HasColumnName("received_at_utc");
+        inbound.Property(x => x.ProcessedAtUtc).HasColumnName("processed_at_utc");
     }
 }

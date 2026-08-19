@@ -1,6 +1,7 @@
 using DgSales.Api.Application;
 using DgSales.Api.Domain;
 using DgSales.Api.Infrastructure;
+using DgSales.Api.Integrations.WhatsApp;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,6 +23,9 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ApprovedPriceCatalogueService>();
 builder.Services.AddSingleton<QuotationPdfService>();
 builder.Services.AddSingleton<QuotationDocumentTokenService>();
+builder.Services.AddHttpClient<IWhatsAppProvider, MetaWhatsAppProvider>(client =>
+    client.BaseAddress = new Uri("https://graph.facebook.com/"));
+builder.Services.AddHostedService<WhatsAppDeliveryWorker>();
 
 var app = builder.Build();
 app.UseSwagger();

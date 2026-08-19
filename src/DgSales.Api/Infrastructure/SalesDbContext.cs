@@ -98,6 +98,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         delivery.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         delivery.Property(x => x.ProviderMessageId).HasColumnName("provider_message_id").HasMaxLength(150);
         delivery.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000);
+        delivery.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
         delivery.HasIndex(x => new { x.QuotationId, x.Status })
             .HasFilter("status = 'Queued'")
             .IsUnique();

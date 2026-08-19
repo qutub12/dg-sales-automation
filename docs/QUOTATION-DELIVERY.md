@@ -22,3 +22,11 @@ in source control.
 `POST /api/quotations/{id}/whatsapp-delivery` creates a duplicate-safe delivery job. It does not send a
 message until a configured WhatsApp provider worker claims the job. The worker will use an approved
 WhatsApp template and the expiring PDF URL; provider credentials remain outside the repository.
+
+The Meta Cloud API worker is disabled by default. To enable it, configure the Graph API version,
+phone-number ID, access token and approved template names for English, Hindi and Marathi, then set
+`WhatsApp__Enabled=true`. The worker removes `+` from E.164 recipient numbers as required by Meta,
+stores the returned message ID, and retries a failed job at most three times with backoff.
+
+Run one worker instance in the low-cost MVP deployment. The PostgreSQL `xmin` concurrency token protects
+job updates, but horizontal worker scaling should add an explicit `FOR UPDATE SKIP LOCKED` claim query.

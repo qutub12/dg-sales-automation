@@ -78,6 +78,11 @@ public sealed class Lead
         UpdatedAtUtc = DateTimeOffset.UtcNow;
     }
 
+    public void MarkQuotationSent() { Status = LeadStatus.QuotationSent; UpdatedAtUtc = DateTimeOffset.UtcNow; }
+    public void MarkFollowUp() { Status = LeadStatus.FollowUp; UpdatedAtUtc = DateTimeOffset.UtcNow; }
+    public void MarkWon() { Status = LeadStatus.Won; UpdatedAtUtc = DateTimeOffset.UtcNow; }
+    public void MarkLost() { Status = LeadStatus.Lost; UpdatedAtUtc = DateTimeOffset.UtcNow; }
+
     public static string NormalizePhone(string value)
     {
         var digits = new string(value.Where(char.IsDigit).ToArray());

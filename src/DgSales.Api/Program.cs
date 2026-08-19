@@ -18,6 +18,7 @@ builder.Services.AddScoped<ILeadRepository, EfLeadRepository>();
 builder.Services.AddScoped<ICallJobRepository, EfCallJobRepository>();
 builder.Services.AddSingleton<LeadMessageParser>();
 builder.Services.AddScoped<InboundLeadProcessor>();
+builder.Services.AddScoped<CustomerReplyService>();
 builder.Services.AddHostedService<IndiaMartMailboxWorker>();
 builder.Services.AddHostedService<JustdialPortalWorker>();
 builder.Services.AddSingleton<ServiceAreaMatcher>();
@@ -33,6 +34,8 @@ builder.Services.AddSingleton<QuotationDocumentTokenService>();
 builder.Services.AddHttpClient<IWhatsAppProvider, MetaWhatsAppProvider>(client =>
     client.BaseAddress = new Uri("https://graph.facebook.com/"));
 builder.Services.AddHostedService<WhatsAppDeliveryWorker>();
+builder.Services.AddHostedService<FollowUpDeliveryWorker>();
+builder.Services.AddHostedService<OwnerNotificationWorker>();
 builder.Services.AddSingleton<WhatsAppWebhookService>();
 builder.Services.AddSingleton<VoiceAgentInstructions>();
 builder.Services.AddSingleton<VoiceWebhookSignatureService>();
@@ -67,14 +70,17 @@ app.MapPost("/api/webhooks/whatsapp", async (HttpRequest request, WhatsAppWebhoo
     await request.Body.CopyToAsync(buffer, cancellationToken);
     var body = buffer.ToArray();
     if (!webhook.Verify(body, request.Headers["X-Hub-Signature-256"].FirstOrDefault())) return Results.Unauthorized();
-    if (!configuration.GetValue<bool>("LeadIntake:Justdial:Enabled")) return Results.Ok();
     var allowed = configuration.GetSection("LeadIntake:Justdial:AllowedSenderNumbers").Get<string[]>() ?? [];
     var allowedDigits = allowed.Select(x => new string(x.Where(char.IsDigit).ToArray())).ToHashSet(StringComparer.Ordinal);
-    foreach (var message in webhook.ReadMessages(body).Where(x => allowedDigits.Contains(new string(x.From.Where(char.IsDigit).ToArray()))))
+    foreach (var message in webhook.ReadMessages(body))
     {
         await using var scope = scopes.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<InboundLeadProcessor>().ProcessAsync(
-            InboundLeadChannel.JustdialWhatsApp, message.Id, message.From, null, message.Text, cancellationToken);
+        var handled = await scope.ServiceProvider.GetRequiredService<CustomerReplyService>()
+            .ProcessAsync(message.Id, message.From, message.Text, cancellationToken);
+        if (!handled && configuration.GetValue<bool>("LeadIntake:Justdial:Enabled")
+            && allowedDigits.Contains(new string(message.From.Where(char.IsDigit).ToArray())))
+            await scope.ServiceProvider.GetRequiredService<InboundLeadProcessor>().ProcessAsync(
+                InboundLeadChannel.JustdialWhatsApp, message.Id, message.From, null, message.Text, cancellationToken);
     }
     return Results.Ok();
 });
@@ -109,6 +115,12 @@ app.MapGet("/api/inbound-leads/review", async (SalesDbContext db, CancellationTo
         .OrderByDescending(x => x.ReceivedAtUtc)
         .Select(x => new { x.Id, x.Channel, x.Sender, x.Subject, x.ProcessingNote, x.ReceivedAtUtc })
         .Take(100).ToListAsync(cancellationToken)));
+
+app.MapGet("/api/follow-ups", async (SalesDbContext db, CancellationToken cancellationToken) =>
+    Results.Ok(await db.FollowUpJobs.AsNoTracking().OrderBy(x => x.ScheduledAtUtc).Take(200).ToListAsync(cancellationToken)));
+
+app.MapGet("/api/owner-escalations", async (SalesDbContext db, CancellationToken cancellationToken) =>
+    Results.Ok(await db.OwnerNotificationJobs.AsNoTracking().OrderByDescending(x => x.ScheduledAtUtc).Take(100).ToListAsync(cancellationToken)));
 
 app.MapPost("/api/leads/{id:guid}/queue-call", async (Guid id, ILeadRepository repository, ICallJobRepository callJobs, CancellationToken cancellationToken) =>
 {

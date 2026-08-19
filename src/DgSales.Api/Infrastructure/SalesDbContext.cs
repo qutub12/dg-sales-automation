@@ -12,6 +12,9 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     public DbSet<WhatsAppDeliveryJob> WhatsAppDeliveryJobs => Set<WhatsAppDeliveryJob>();
     public DbSet<VoiceCallResult> VoiceCallResults => Set<VoiceCallResult>();
     public DbSet<InboundLeadMessage> InboundLeadMessages => Set<InboundLeadMessage>();
+    public DbSet<FollowUpJob> FollowUpJobs => Set<FollowUpJob>();
+    public DbSet<CustomerReply> CustomerReplies => Set<CustomerReply>();
+    public DbSet<OwnerNotificationJob> OwnerNotificationJobs => Set<OwnerNotificationJob>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -137,5 +140,23 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         inbound.Property(x => x.ProcessingNote).HasColumnName("processing_note").HasMaxLength(1000);
         inbound.Property(x => x.ReceivedAtUtc).HasColumnName("received_at_utc");
         inbound.Property(x => x.ProcessedAtUtc).HasColumnName("processed_at_utc");
+
+        var followUp = modelBuilder.Entity<FollowUpJob>();
+        followUp.ToTable("follow_up_jobs"); followUp.HasKey(x => x.Id);
+        followUp.Property(x => x.Id).HasColumnName("id"); followUp.Property(x => x.LeadId).HasColumnName("lead_id"); followUp.Property(x => x.QuotationId).HasColumnName("quotation_id");
+        followUp.Property(x => x.Step).HasColumnName("step"); followUp.HasIndex(x => new { x.QuotationId, x.Step }).IsUnique();
+        followUp.Property(x => x.Purpose).HasColumnName("purpose").HasMaxLength(300); followUp.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(30);
+        followUp.Property(x => x.ScheduledAtUtc).HasColumnName("scheduled_at_utc"); followUp.Property(x => x.AttemptCount).HasColumnName("attempt_count");
+        followUp.Property(x => x.ProviderMessageId).HasColumnName("provider_message_id").HasMaxLength(150); followUp.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000);
+        followUp.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc"); followUp.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
+
+        var reply = modelBuilder.Entity<CustomerReply>(); reply.ToTable("customer_replies"); reply.HasKey(x => x.Id);
+        reply.Property(x => x.Id).HasColumnName("id"); reply.Property(x => x.LeadId).HasColumnName("lead_id"); reply.Property(x => x.ExternalMessageId).HasColumnName("external_message_id").HasMaxLength(200); reply.HasIndex(x => x.ExternalMessageId).IsUnique();
+        reply.Property(x => x.Text).HasColumnName("text").HasMaxLength(5000); reply.Property(x => x.Disposition).HasColumnName("disposition").HasConversion<string>().HasMaxLength(30); reply.Property(x => x.ReceivedAtUtc).HasColumnName("received_at_utc");
+
+        var owner = modelBuilder.Entity<OwnerNotificationJob>(); owner.ToTable("owner_notification_jobs"); owner.HasKey(x => x.Id);
+        owner.Property(x => x.Id).HasColumnName("id"); owner.Property(x => x.LeadId).HasColumnName("lead_id"); owner.Property(x => x.CustomerReplyId).HasColumnName("customer_reply_id"); owner.HasIndex(x => x.CustomerReplyId).IsUnique();
+        owner.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(30); owner.Property(x => x.AttemptCount).HasColumnName("attempt_count"); owner.Property(x => x.ScheduledAtUtc).HasColumnName("scheduled_at_utc");
+        owner.Property(x => x.ProviderMessageId).HasColumnName("provider_message_id").HasMaxLength(150); owner.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000); owner.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
     }
 }

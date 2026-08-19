@@ -9,6 +9,7 @@ public sealed class WhatsAppDeliveryWorker(
     IServiceScopeFactory scopeFactory,
     IConfiguration configuration,
     TimeProvider timeProvider,
+    FollowUpScheduleService followUps,
     ILogger<WhatsAppDeliveryWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -41,8 +42,8 @@ public sealed class WhatsAppDeliveryWorker(
         await db.SaveChangesAsync(cancellationToken);
         try
         {
-            var quotation = await db.Quotations.AsNoTracking().SingleAsync(x => x.Id == job.QuotationId, cancellationToken);
-            var lead = await db.Leads.AsNoTracking().SingleAsync(x => x.Id == job.LeadId, cancellationToken);
+            var quotation = await db.Quotations.SingleAsync(x => x.Id == job.QuotationId, cancellationToken);
+            var lead = await db.Leads.SingleAsync(x => x.Id == job.LeadId, cancellationToken);
             var baseUrl = configuration["QuotationDocuments:PublicBaseUrl"]?.TrimEnd('/')
                 ?? throw new InvalidOperationException("QuotationDocuments:PublicBaseUrl is required.");
             var token = tokens.Create(quotation.Id, TimeSpan.FromHours(24));
@@ -51,6 +52,10 @@ public sealed class WhatsAppDeliveryWorker(
             var result = await provider.SendDocumentAsync(new(
                 lead.Id, lead.Phone, template, language, documentUri, $"{quotation.QuotationNumber}.pdf"), cancellationToken);
             job.MarkSent(result.ProviderMessageId);
+            quotation.MarkSent();
+            lead.MarkQuotationSent();
+            foreach (var step in followUps.Create(now))
+                db.FollowUpJobs.Add(FollowUpJob.Queue(lead.Id, quotation.Id, step.Day, step.Purpose, step.ScheduledAtUtc));
         }
         catch (Exception exception)
         {

@@ -38,4 +38,6 @@ public sealed class Quotation
         GrandTotal = grandTotal,
         Status = QuotationStatus.Generated
     };
+
+    public void MarkSent() => Status = QuotationStatus.Sent;
 }

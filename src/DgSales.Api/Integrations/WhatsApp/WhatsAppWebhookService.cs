@@ -13,9 +13,12 @@ public sealed class WhatsAppWebhookService(IConfiguration config)
         var secret = config["WhatsApp:AppSecret"];
         if (string.IsNullOrWhiteSpace(secret) || string.IsNullOrWhiteSpace(supplied) || !supplied.StartsWith("sha256=", StringComparison.Ordinal)) return false;
         var expected = HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), body);
-        var actual = new byte[expected.Length];
-        return Convert.TryFromHexString(supplied[7..], actual, out var written)
-            && written == expected.Length && CryptographicOperations.FixedTimeEquals(expected, actual);
+        try
+        {
+            var actual = Convert.FromHexString(supplied[7..]);
+            return actual.Length == expected.Length && CryptographicOperations.FixedTimeEquals(expected, actual);
+        }
+        catch (FormatException) { return false; }
     }
 
     public IReadOnlyList<WhatsAppInboundText> ReadMessages(byte[] body)

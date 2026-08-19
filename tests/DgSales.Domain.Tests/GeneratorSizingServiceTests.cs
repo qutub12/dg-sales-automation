@@ -29,4 +29,15 @@ public sealed class GeneratorSizingServiceTests
         Assert.True(result.RequiresReview);
         Assert.Null(result.RecommendedKva);
     }
+
+    [Fact]
+    public void ConvertsHorsepowerAndAppliesMotorStartingRule()
+    {
+        var result = _service.Calculate(new SizingRequest([
+            new LoadItem("Pump", 1, 0, InputUnit: LoadInputUnit.Hp, InputValue: 10, Kind: LoadKind.MotorDirectOnLine, Efficiency: 1m)
+        ], SafetyMarginPercent: 0));
+        Assert.Equal(7.46m, result.RunningKw);
+        Assert.Equal(27.98m, result.RequiredKva);
+        Assert.Equal(30, result.RecommendedKva);
+    }
 }

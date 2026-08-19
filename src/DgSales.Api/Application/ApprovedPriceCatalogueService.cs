@@ -20,14 +20,14 @@ public sealed record ApprovedPriceItem(
     DateOnly? EffectiveTo,
     bool IsActive);
 
-public sealed class ApprovedPriceCatalogueService(IConfiguration configuration, TimeProvider timeProvider, SalesDbContext db)
+public sealed class ApprovedPriceCatalogueService(IConfiguration configuration, TimeProvider timeProvider, SalesDbContext? db = null)
 {
     private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
     public ApprovedPriceItem? Find(decimal kva, int phaseCount, string? preferredBrand)
     {
         var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
-        var databaseItem = db.PriceCatalogueEntries.AsNoTracking()
+        var databaseItem = db?.PriceCatalogueEntries.AsNoTracking()
             .Where(x => x.IsActive && x.Kva == kva && x.PhaseCount == phaseCount)
             .Where(x => x.EffectiveFrom <= today && (x.EffectiveTo == null || x.EffectiveTo >= today))
             .Where(x => string.IsNullOrWhiteSpace(preferredBrand) || x.Brand.ToLower() == preferredBrand.Trim().ToLower())

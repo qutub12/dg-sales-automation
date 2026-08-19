@@ -26,12 +26,14 @@ public sealed class VoiceCallWorker(
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SalesDbContext>();
+        if (await db.AutomationControls.AnyAsync(x => x.Name == "calls" && x.IsPaused, cancellationToken)) return;
         var provider = scope.ServiceProvider.GetRequiredService<IVoiceCallProvider>();
         var now = timeProvider.GetUtcNow();
         var job = await db.CallJobs.Where(x => x.Status == CallJobStatus.Queued && x.ScheduledAtUtc <= now)
             .OrderBy(x => x.ScheduledAtUtc).FirstOrDefaultAsync(cancellationToken);
         if (job is null) return;
         var lead = await db.Leads.AsNoTracking().SingleAsync(x => x.Id == job.LeadId, cancellationToken);
+        if (!lead.ContactAllowed) { job.Cancel("Contact is blocked for this customer."); await db.SaveChangesAsync(cancellationToken); return; }
 
         try
         {

@@ -20,11 +20,12 @@ public sealed class FollowUpDeliveryWorker(IServiceScopeFactory scopes, IConfigu
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SalesDbContext>();
+        if (await db.AutomationControls.AnyAsync(x => x.Name == "followups" && x.IsPaused, ct)) return;
         var now = clock.GetUtcNow();
         var job = await db.FollowUpJobs.Where(x => x.Status == FollowUpStatus.Queued && x.ScheduledAtUtc <= now).OrderBy(x => x.ScheduledAtUtc).FirstOrDefaultAsync(ct);
         if (job is null) return;
         var lead = await db.Leads.SingleAsync(x => x.Id == job.LeadId, ct);
-        if (lead.Status is LeadStatus.Won or LeadStatus.Lost or LeadStatus.Escalated) { job.Cancel(); await db.SaveChangesAsync(ct); return; }
+        if (!lead.ContactAllowed || lead.Status is LeadStatus.Won or LeadStatus.Lost or LeadStatus.Escalated) { job.Cancel(); await db.SaveChangesAsync(ct); return; }
         job.MarkSending(); await db.SaveChangesAsync(ct);
         try
         {
@@ -61,6 +62,7 @@ public sealed class OwnerNotificationWorker(IServiceScopeFactory scopes, IConfig
     private async Task ProcessOneAsync(CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope(); var db = scope.ServiceProvider.GetRequiredService<SalesDbContext>(); var now = clock.GetUtcNow();
+        if (await db.AutomationControls.AnyAsync(x => x.Name == "whatsapp" && x.IsPaused, ct)) return;
         var job = await db.OwnerNotificationJobs.Where(x => x.Status == OwnerNotificationStatus.Queued && x.ScheduledAtUtc <= now).OrderBy(x => x.ScheduledAtUtc).FirstOrDefaultAsync(ct); if (job is null) return;
         job.MarkSending(); await db.SaveChangesAsync(ct);
         try

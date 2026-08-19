@@ -36,6 +36,7 @@ public sealed class CallJob
         if (Status != CallJobStatus.InProgress) throw new InvalidOperationException("Only active calls can complete.");
         Status = CallJobStatus.Completed;
     }
+    public void Cancel(string reason) { Status = CallJobStatus.Cancelled; LastError = reason; }
 
     public void MarkFailed(string error, bool retry, DateTimeOffset retryAtUtc)
     {

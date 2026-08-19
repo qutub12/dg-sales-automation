@@ -16,6 +16,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     public DbSet<CustomerReply> CustomerReplies => Set<CustomerReply>();
     public DbSet<OwnerNotificationJob> OwnerNotificationJobs => Set<OwnerNotificationJob>();
     public DbSet<PriceCatalogueEntry> PriceCatalogueEntries => Set<PriceCatalogueEntry>();
+    public DbSet<AutomationControl> AutomationControls => Set<AutomationControl>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -32,6 +33,8 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         lead.Property(x => x.IsInServiceArea).HasColumnName("is_in_service_area");
         lead.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(40);
         lead.Property(x => x.PreferredLanguage).HasColumnName("preferred_language").HasConversion<string>().HasMaxLength(20);
+        lead.Property(x => x.ContactAllowed).HasColumnName("contact_allowed");
+        lead.Property(x => x.ContactRestrictionReason).HasColumnName("contact_restriction_reason").HasMaxLength(500);
         lead.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         lead.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
         lead.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
@@ -166,5 +169,8 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         price.Property(x => x.BasePrice).HasColumnName("base_price").HasPrecision(14, 2); price.Property(x => x.StandardMarkup).HasColumnName("standard_markup").HasPrecision(14, 2); price.Property(x => x.TransportCharge).HasColumnName("transport_charge").HasPrecision(14, 2); price.Property(x => x.InstallationCharge).HasColumnName("installation_charge").HasPrecision(14, 2); price.Property(x => x.AccessoryCharge).HasColumnName("accessory_charge").HasPrecision(14, 2); price.Property(x => x.GstPercent).HasColumnName("gst_percent").HasPrecision(5, 2);
         price.Property(x => x.EffectiveFrom).HasColumnName("effective_from"); price.Property(x => x.EffectiveTo).HasColumnName("effective_to"); price.Property(x => x.IsActive).HasColumnName("is_active"); price.Property(x => x.ChangeReason).HasColumnName("change_reason").HasMaxLength(500); price.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         price.HasIndex(x => new { x.Brand, x.Kva, x.PhaseCount, x.IsActive });
+
+        var control = modelBuilder.Entity<AutomationControl>(); control.ToTable("automation_controls"); control.HasKey(x => x.Name);
+        control.Property(x => x.Name).HasColumnName("name").HasMaxLength(40); control.Property(x => x.IsPaused).HasColumnName("is_paused"); control.Property(x => x.Reason).HasColumnName("reason").HasMaxLength(500); control.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
     }
 }

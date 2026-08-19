@@ -29,6 +29,7 @@ public sealed class WhatsAppDeliveryWorker(
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SalesDbContext>();
+        if (await db.AutomationControls.AnyAsync(x => x.Name == "whatsapp" && x.IsPaused, cancellationToken)) return;
         var provider = scope.ServiceProvider.GetRequiredService<IWhatsAppProvider>();
         var tokens = scope.ServiceProvider.GetRequiredService<QuotationDocumentTokenService>();
         var now = timeProvider.GetUtcNow();
@@ -44,6 +45,7 @@ public sealed class WhatsAppDeliveryWorker(
         {
             var quotation = await db.Quotations.SingleAsync(x => x.Id == job.QuotationId, cancellationToken);
             var lead = await db.Leads.SingleAsync(x => x.Id == job.LeadId, cancellationToken);
+            if (!lead.ContactAllowed) throw new InvalidOperationException("Contact is blocked for this customer.");
             var baseUrl = configuration["QuotationDocuments:PublicBaseUrl"]?.TrimEnd('/')
                 ?? throw new InvalidOperationException("QuotationDocuments:PublicBaseUrl is required.");
             var token = tokens.Create(quotation.Id, TimeSpan.FromHours(24));

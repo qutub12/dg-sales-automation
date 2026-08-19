@@ -92,6 +92,52 @@ app.MapGet("/api/admin/dashboard", async (SalesDbContext db, CancellationToken c
     ownerEscalations = await db.OwnerNotificationJobs.CountAsync(x => x.Status != OwnerNotificationStatus.Sent, ct),
     recentLeads = await db.Leads.AsNoTracking().OrderByDescending(x => x.CreatedAtUtc).Take(30).ToListAsync(ct)
 }));
+app.MapGet("/api/admin/leads", async (string? query, LeadStatus? status, SalesDbContext db, CancellationToken ct) =>
+{
+    var leads = db.Leads.AsNoTracking().AsQueryable();
+    if (!string.IsNullOrWhiteSpace(query)) { var q = query.Trim().ToLower(); leads = leads.Where(x => x.CustomerName.ToLower().Contains(q) || x.Phone.Contains(q) || (x.City != null && x.City.ToLower().Contains(q))); }
+    if (status is not null) leads = leads.Where(x => x.Status == status);
+    return Results.Ok(await leads.OrderByDescending(x => x.CreatedAtUtc).Take(200).ToListAsync(ct));
+});
+app.MapGet("/api/admin/leads/{id:guid}/details", async (Guid id, SalesDbContext db, CancellationToken ct) =>
+{
+    var lead = await db.Leads.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (lead is null) return Results.NotFound();
+    return Results.Ok(new { lead,
+        requirements = await db.CustomerRequirements.AsNoTracking().Where(x => x.LeadId == id).OrderByDescending(x => x.CapturedAtUtc).ToListAsync(ct),
+        calls = await db.CallJobs.AsNoTracking().Where(x => x.LeadId == id).OrderByDescending(x => x.CreatedAtUtc).ToListAsync(ct),
+        callResults = await db.VoiceCallResults.AsNoTracking().Where(x => x.LeadId == id).OrderByDescending(x => x.CompletedAtUtc).ToListAsync(ct),
+        quotations = await db.Quotations.AsNoTracking().Where(x => x.LeadId == id).OrderByDescending(x => x.CreatedAtUtc).ToListAsync(ct),
+        followUps = await db.FollowUpJobs.AsNoTracking().Where(x => x.LeadId == id).OrderBy(x => x.ScheduledAtUtc).ToListAsync(ct),
+        replies = await db.CustomerReplies.AsNoTracking().Where(x => x.LeadId == id).OrderByDescending(x => x.ReceivedAtUtc).ToListAsync(ct) });
+});
+app.MapPut("/api/admin/leads/{id:guid}", async (Guid id, UpdateLeadRequest request, SalesDbContext db, CancellationToken ct) =>
+{
+    var lead = await db.Leads.FindAsync([id], ct); if (lead is null) return Results.NotFound();
+    try { lead.UpdateContact(request); await db.SaveChangesAsync(ct); return Results.Ok(lead); }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+    catch (DbUpdateException) { return Results.Conflict(new { error = "That phone number already belongs to another lead." }); }
+});
+app.MapPost("/api/admin/leads/{id:guid}/contact/{action}", async (Guid id, string action, string? reason, SalesDbContext db, CancellationToken ct) =>
+{
+    var lead = await db.Leads.FindAsync([id], ct); if (lead is null) return Results.NotFound();
+    if (action == "block") { lead.RestrictContact(reason ?? "Owner blocked contact."); var pending = await db.FollowUpJobs.Where(x => x.LeadId == id && x.Status == FollowUpStatus.Queued).ToListAsync(ct); pending.ForEach(x => x.Cancel()); }
+    else if (action == "allow") lead.AllowContact(); else return Results.BadRequest(); await db.SaveChangesAsync(ct); return Results.Ok(lead);
+});
+app.MapGet("/api/admin/automation", async (SalesDbContext db, CancellationToken ct) => Results.Ok(await db.AutomationControls.AsNoTracking().ToListAsync(ct)));
+app.MapPut("/api/admin/automation/{name}", async (string name, SetAutomationControlRequest request, SalesDbContext db, CancellationToken ct) =>
+{
+    if (name is not "calls" and not "whatsapp" and not "followups") return Results.BadRequest(new { error = "Unknown automation." });
+    var control = await db.AutomationControls.FindAsync([name], ct) ?? AutomationControl.Create(name); if (db.Entry(control).State == EntityState.Detached) db.Add(control);
+    control.Set(request.IsPaused, request.Reason); await db.SaveChangesAsync(ct); return Results.Ok(control);
+});
+app.MapPost("/api/admin/calls/{id:guid}/retry", async (Guid id, SalesDbContext db, TimeProvider clock, CancellationToken ct) =>
+{
+    var job = await db.CallJobs.FindAsync([id], ct); if (job is null) return Results.NotFound(); if (job.Status != CallJobStatus.Failed) return Results.Conflict(new { error = "Only failed calls can be retried." }); job.MarkFailed("Manual retry requested.", true, clock.GetUtcNow()); await db.SaveChangesAsync(ct); return Results.Ok(job);
+});
+app.MapPost("/api/admin/follow-ups/{id:guid}/retry", async (Guid id, SalesDbContext db, TimeProvider clock, CancellationToken ct) =>
+{
+    var job = await db.FollowUpJobs.FindAsync([id], ct); if (job is null) return Results.NotFound(); if (job.Status != FollowUpStatus.Failed) return Results.Conflict(new { error = "Only failed follow-ups can be retried." }); job.MarkFailed("Manual retry requested.", true, clock.GetUtcNow()); await db.SaveChangesAsync(ct); return Results.Ok(job);
+});
 
 app.MapGet("/api/admin/prices", async (SalesDbContext db, CancellationToken ct) =>
     Results.Ok(await db.PriceCatalogueEntries.AsNoTracking().OrderByDescending(x => x.IsActive).ThenBy(x => x.Kva).ToListAsync(ct)));

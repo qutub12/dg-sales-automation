@@ -1,43 +1,150 @@
+using DgSales.Api.Application;
 using DgSales.Api.Domain;
+using DgSales.Api.Infrastructure;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddSingleton<ILeadRepository, InMemoryLeadRepository>();
+var connectionString = builder.Configuration.GetConnectionString("SalesDatabase")
+    ?? Environment.GetEnvironmentVariable("CONNECTION_STRING")
+    ?? throw new InvalidOperationException("Sales database connection string is not configured.");
+builder.Services.AddDbContext<SalesDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddScoped<ILeadRepository, EfLeadRepository>();
+builder.Services.AddScoped<ICallJobRepository, EfCallJobRepository>();
+builder.Services.AddSingleton<ServiceAreaMatcher>();
+builder.Services.AddSingleton<GeneratorSizingService>();
+builder.Services.AddSingleton<QuotationEligibilityService>();
+builder.Services.AddSingleton<StandardQuotationCalculator>();
+builder.Services.AddSingleton<FollowUpScheduleService>();
+builder.Services.AddSingleton<ReferenceCatalogueService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ApprovedPriceCatalogueService>();
 
 var app = builder.Build();
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+app.MapGet("/health/ready", async (SalesDbContext db, CancellationToken cancellationToken) =>
+    await db.Database.CanConnectAsync(cancellationToken)
+        ? Results.Ok(new { status = "ready" })
+        : Results.Problem("Database is unavailable.", statusCode: 503));
 
-app.MapPost("/api/leads", (CreateLeadRequest request, ILeadRepository repository) =>
+app.MapPost("/api/leads", async (CreateLeadRequest request, ILeadRepository repository, ServiceAreaMatcher serviceAreas, CancellationToken cancellationToken) =>
 {
     var validation = request.Validate();
     if (validation is not null) return Results.BadRequest(new { error = validation });
 
-    var existing = repository.FindByPhone(request.Phone);
+    var existing = await repository.FindByPhoneAsync(request.Phone, cancellationToken);
     if (existing is not null)
         return Results.Ok(new { lead = existing, duplicate = true });
 
-    var lead = Lead.Create(request);
-    repository.Add(lead);
+    var lead = Lead.Create(request, serviceAreas.IsSupported(request.City));
+    await repository.AddAsync(lead, cancellationToken);
+    await repository.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/leads/{lead.Id}", new { lead, duplicate = false });
 });
 
-app.MapGet("/api/leads", (ILeadRepository repository) => repository.List());
-app.MapGet("/api/leads/{id:guid}", (Guid id, ILeadRepository repository) =>
-    repository.Get(id) is { } lead ? Results.Ok(lead) : Results.NotFound());
+app.MapGet("/api/leads", (ILeadRepository repository, CancellationToken cancellationToken) =>
+    repository.ListAsync(cancellationToken));
+app.MapGet("/api/leads/{id:guid}", async (Guid id, ILeadRepository repository, CancellationToken cancellationToken) =>
+    await repository.GetAsync(id, cancellationToken) is { } lead ? Results.Ok(lead) : Results.NotFound());
 
-app.MapPost("/api/leads/{id:guid}/queue-call", (Guid id, ILeadRepository repository) =>
+app.MapPost("/api/leads/{id:guid}/queue-call", async (Guid id, ILeadRepository repository, ICallJobRepository callJobs, CancellationToken cancellationToken) =>
 {
-    var lead = repository.Get(id);
+    var lead = await repository.GetAsync(id, cancellationToken);
     if (lead is null) return Results.NotFound();
+    var existingJob = await callJobs.FindQueuedAsync(id, cancellationToken);
+    if (existingJob is not null) return Results.Ok(new { callJob = existingJob, duplicate = true });
     lead.QueueCall();
-    return Results.Accepted($"/api/leads/{id}", lead);
+    var callJob = CallJob.Queue(id);
+    await callJobs.AddAsync(callJob, cancellationToken);
+    await repository.SaveChangesAsync(cancellationToken);
+    return Results.Accepted($"/api/leads/{id}", new { lead, callJob, duplicate = false });
 });
+
+app.MapPost("/api/tools/sizing", (SizingRequest request, GeneratorSizingService sizing) =>
+{
+    var result = sizing.Calculate(request);
+    return result.RecommendedKva is null ? Results.BadRequest(result) : Results.Ok(result);
+});
+
+app.MapPost("/api/tools/quotation-eligibility", (QuotationEligibilityRequest request, QuotationEligibilityService eligibility) =>
+    Results.Ok(eligibility.Assess(request)));
+
+app.MapPost("/api/tools/standard-quotation", (StandardQuotationRequest request, StandardQuotationCalculator calculator) =>
+{
+    var result = calculator.Calculate(request);
+    return result.IsValid ? Results.Ok(result) : Results.BadRequest(result);
+});
+
+app.MapGet("/api/reference/catalogue/technical", (ReferenceCatalogueService catalogue) => catalogue.GetTechnical());
+
+app.MapPost("/api/leads/{id:guid}/requirements", async (
+    Guid id, CaptureRequirementRequest request, SalesDbContext db, CancellationToken cancellationToken) =>
+{
+    if (await db.Leads.FindAsync([id], cancellationToken) is null) return Results.NotFound();
+    if (request.Validate() is { } error) return Results.BadRequest(new { error });
+
+    var requirement = CustomerRequirement.Capture(id, request);
+    db.CustomerRequirements.Add(requirement);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Created($"/api/leads/{id}/requirements/{requirement.Id}", requirement);
+});
+
+app.MapGet("/api/leads/{id:guid}/requirements", async (Guid id, SalesDbContext db, CancellationToken cancellationToken) =>
+    Results.Ok(await db.CustomerRequirements.AsNoTracking()
+        .Where(x => x.LeadId == id)
+        .OrderByDescending(x => x.CapturedAtUtc)
+        .ToListAsync(cancellationToken)));
+
+app.MapPost("/api/leads/{leadId:guid}/requirements/{requirementId:guid}/quotation", async (
+    Guid leadId, Guid requirementId, SalesDbContext db, ApprovedPriceCatalogueService prices,
+    QuotationEligibilityService eligibility, StandardQuotationCalculator calculator, CancellationToken cancellationToken) =>
+{
+    var requirement = await db.CustomerRequirements.SingleOrDefaultAsync(
+        x => x.Id == requirementId && x.LeadId == leadId, cancellationToken);
+    if (requirement is null) return Results.NotFound();
+
+    var existingQuotation = await db.Quotations.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.RequirementId == requirementId, cancellationToken);
+    if (existingQuotation is not null)
+        return Results.Ok(new { quotation = existingQuotation, duplicate = true });
+
+    var price = requirement.RequestedKva is { } kva
+        ? prices.Find(kva, requirement.PhaseCount, requirement.PreferredBrand)
+        : null;
+    var assessment = eligibility.Assess(new(
+        requirement.IsComplete,
+        requirement.SizingConfirmed,
+        price is not null,
+        price is not null,
+        requirement.CustomDiscountRequested,
+        requirement.NonStandardTermsRequested,
+        requirement.DeliveryPromiseRequired,
+        requirement.HasValidationFlags));
+    if (!assessment.CanSendAutomatically)
+        return Results.Conflict(new { status = "ReviewRequired", assessment.ReviewReasons });
+
+    var calculated = calculator.Calculate(new(
+        price!.BasePrice, price.StandardMarkup, price.TransportCharge,
+        price.InstallationCharge, price.AccessoryCharge, price.GstPercent));
+    if (!calculated.IsValid) return Results.Conflict(new { status = "ReviewRequired", calculated.Errors });
+
+    var quotation = Quotation.Generate(
+        leadId, requirementId, price.Version, price.Brand, price.GensetModel,
+        price.Kva, price.PhaseCount, calculated.Subtotal, calculated.GstAmount, calculated.GrandTotal);
+    db.Quotations.Add(quotation);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Created($"/api/quotations/{quotation.Id}", new { quotation, duplicate = false });
+});
+
+app.MapGet("/api/quotations/{id:guid}", async (Guid id, SalesDbContext db, CancellationToken cancellationToken) =>
+    await db.Quotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken) is { } quotation
+        ? Results.Ok(quotation)
+        : Results.NotFound());
 
 app.Run();
 
 public partial class Program;
-

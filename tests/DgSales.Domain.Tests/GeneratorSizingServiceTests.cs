@@ -1,0 +1,32 @@
+using DgSales.Api.Application;
+using Xunit;
+
+namespace DgSales.Domain.Tests;
+
+public sealed class GeneratorSizingServiceTests
+{
+    private readonly GeneratorSizingService _service = new();
+
+    [Fact]
+    public void AddsLargestStartingLoadAndSafetyMargin()
+    {
+        var result = _service.Calculate(new SizingRequest([
+            new LoadItem("Motor", 1, 10m, 3m),
+            new LoadItem("Lighting", 1, 5m)
+        ]));
+
+        Assert.Equal(15m, result.RunningKw);
+        Assert.Equal(35m, result.PeakKw);
+        Assert.Equal(52.5m, result.RequiredKva);
+        Assert.Equal(62, result.RecommendedKva);
+        Assert.False(result.RequiresReview);
+    }
+
+    [Fact]
+    public void RejectsInvalidLoadInsteadOfGuessing()
+    {
+        var result = _service.Calculate(new SizingRequest([new LoadItem("Unknown", 0, 0)]));
+        Assert.True(result.RequiresReview);
+        Assert.Null(result.RecommendedKva);
+    }
+}

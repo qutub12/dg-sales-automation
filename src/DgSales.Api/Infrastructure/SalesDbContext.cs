@@ -10,6 +10,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     public DbSet<CustomerRequirement> CustomerRequirements => Set<CustomerRequirement>();
     public DbSet<Quotation> Quotations => Set<Quotation>();
     public DbSet<WhatsAppDeliveryJob> WhatsAppDeliveryJobs => Set<WhatsAppDeliveryJob>();
+    public DbSet<VoiceCallResult> VoiceCallResults => Set<VoiceCallResult>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -41,6 +42,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         callJob.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         callJob.Property(x => x.ProviderCallId).HasColumnName("provider_call_id").HasMaxLength(120);
         callJob.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000);
+        callJob.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
         callJob.HasIndex(x => new { x.LeadId, x.Status })
             .HasFilter("status = 'Queued'")
             .IsUnique();
@@ -102,5 +104,21 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         delivery.HasIndex(x => new { x.QuotationId, x.Status })
             .HasFilter("status = 'Queued'")
             .IsUnique();
+
+        var callResult = modelBuilder.Entity<VoiceCallResult>();
+        callResult.ToTable("voice_call_results");
+        callResult.HasKey(x => x.Id);
+        callResult.Property(x => x.Id).HasColumnName("id");
+        callResult.Property(x => x.CallJobId).HasColumnName("call_job_id");
+        callResult.HasIndex(x => x.CallJobId).IsUnique();
+        callResult.Property(x => x.LeadId).HasColumnName("lead_id");
+        callResult.Property(x => x.ProviderCallId).HasColumnName("provider_call_id").HasMaxLength(150);
+        callResult.HasIndex(x => x.ProviderCallId).IsUnique();
+        callResult.Property(x => x.Outcome).HasColumnName("outcome").HasConversion<string>().HasMaxLength(40);
+        callResult.Property(x => x.DetectedLanguage).HasColumnName("detected_language").HasConversion<string>().HasMaxLength(20);
+        callResult.Property(x => x.AutomationDisclosed).HasColumnName("automation_disclosed");
+        callResult.Property(x => x.RecordingConsentGiven).HasColumnName("recording_consent_given");
+        callResult.Property(x => x.Transcript).HasColumnName("transcript");
+        callResult.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
     }
 }

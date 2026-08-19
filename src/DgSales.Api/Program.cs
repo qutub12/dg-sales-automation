@@ -2,6 +2,7 @@ using DgSales.Api.Application;
 using DgSales.Api.Domain;
 using DgSales.Api.Infrastructure;
 using DgSales.Api.Integrations.WhatsApp;
+using DgSales.Api.Integrations.Voice;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,6 +27,10 @@ builder.Services.AddSingleton<QuotationDocumentTokenService>();
 builder.Services.AddHttpClient<IWhatsAppProvider, MetaWhatsAppProvider>(client =>
     client.BaseAddress = new Uri("https://graph.facebook.com/"));
 builder.Services.AddHostedService<WhatsAppDeliveryWorker>();
+builder.Services.AddSingleton<VoiceAgentInstructions>();
+builder.Services.AddSingleton<VoiceWebhookSignatureService>();
+builder.Services.AddHttpClient<IVoiceCallProvider, HttpVoiceCallProvider>();
+builder.Services.AddHostedService<VoiceCallWorker>();
 
 var app = builder.Build();
 app.UseSwagger();
@@ -192,6 +197,48 @@ app.MapGet("/api/public/quotations/{id:guid}/pdf", async (
         .SingleAsync(x => x.Id == quotation.RequirementId, cancellationToken);
     var bytes = pdfs.Render(quotation, lead, requirement);
     return Results.File(bytes, "application/pdf", $"{quotation.QuotationNumber}.pdf");
+});
+
+app.MapPost("/api/webhooks/voice/call-result", async (
+    HttpRequest request, SalesDbContext db, VoiceWebhookSignatureService signatures, CancellationToken cancellationToken) =>
+{
+    using var buffer = new MemoryStream();
+    await request.Body.CopyToAsync(buffer, cancellationToken);
+    var body = buffer.ToArray();
+    if (!signatures.Validate(body, request.Headers["X-Voice-Signature"].FirstOrDefault()))
+        return Results.Unauthorized();
+
+    var options = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+    options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    var payload = System.Text.Json.JsonSerializer.Deserialize<VoiceCallResultWebhook>(body, options);
+    if (payload is null || string.IsNullOrWhiteSpace(payload.ProviderCallId))
+        return Results.BadRequest(new { error = "Invalid call result." });
+
+    if (await db.VoiceCallResults.AsNoTracking().AnyAsync(x => x.CallJobId == payload.CallJobId, cancellationToken))
+        return Results.Ok(new { duplicate = true });
+    var job = await db.CallJobs.SingleOrDefaultAsync(x => x.Id == payload.CallJobId, cancellationToken);
+    if (job is null) return Results.NotFound();
+    if (!string.Equals(job.ProviderCallId, payload.ProviderCallId, StringComparison.Ordinal))
+        return Results.BadRequest(new { error = "Provider call ID does not match the active job." });
+
+    var result = VoiceCallResult.Capture(
+        job.Id, job.LeadId, payload.ProviderCallId, payload.Outcome, payload.DetectedLanguage,
+        payload.AutomationDisclosed, payload.RecordingConsentGiven,
+        payload.RecordingConsentGiven ? payload.Transcript : null);
+    db.VoiceCallResults.Add(result);
+
+    if (payload.Outcome == VoiceCallOutcome.Completed)
+    {
+        job.MarkCompleted();
+        if (payload.Requirement is { } requirement && requirement.Validate() is null)
+            db.CustomerRequirements.Add(CustomerRequirement.Capture(job.LeadId, requirement));
+    }
+    else
+    {
+        job.MarkFailed($"Call ended with {payload.Outcome}.", false, DateTimeOffset.UtcNow);
+    }
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new { duplicate = false });
 });
 
 app.Run();

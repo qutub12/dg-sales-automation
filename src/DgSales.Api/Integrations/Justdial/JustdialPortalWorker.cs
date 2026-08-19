@@ -47,7 +47,7 @@ public sealed class JustdialPortalWorker(
             await page.Locator(authenticatedSelector).WaitForAsync(new()
             {
                 State = WaitForSelectorState.Visible,
-                Timeout = TimeSpan.FromMinutes(Math.Max(1, config.GetValue("LeadIntake:Justdial:LoginBootstrapMinutes", 10))).TotalMilliseconds
+                Timeout = (float)TimeSpan.FromMinutes(Math.Max(1, config.GetValue("LeadIntake:Justdial:LoginBootstrapMinutes", 10))).TotalMilliseconds
             });
         }
 

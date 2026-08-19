@@ -15,6 +15,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     public DbSet<FollowUpJob> FollowUpJobs => Set<FollowUpJob>();
     public DbSet<CustomerReply> CustomerReplies => Set<CustomerReply>();
     public DbSet<OwnerNotificationJob> OwnerNotificationJobs => Set<OwnerNotificationJob>();
+    public DbSet<PriceCatalogueEntry> PriceCatalogueEntries => Set<PriceCatalogueEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -158,5 +159,12 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         owner.Property(x => x.Id).HasColumnName("id"); owner.Property(x => x.LeadId).HasColumnName("lead_id"); owner.Property(x => x.CustomerReplyId).HasColumnName("customer_reply_id"); owner.HasIndex(x => x.CustomerReplyId).IsUnique();
         owner.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(30); owner.Property(x => x.AttemptCount).HasColumnName("attempt_count"); owner.Property(x => x.ScheduledAtUtc).HasColumnName("scheduled_at_utc");
         owner.Property(x => x.ProviderMessageId).HasColumnName("provider_message_id").HasMaxLength(150); owner.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000); owner.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
+
+        var price = modelBuilder.Entity<PriceCatalogueEntry>(); price.ToTable("price_catalogue_entries"); price.HasKey(x => x.Id);
+        price.Property(x => x.Id).HasColumnName("id"); price.Property(x => x.Version).HasColumnName("version").HasMaxLength(50); price.HasIndex(x => x.Version).IsUnique();
+        price.Property(x => x.Brand).HasColumnName("brand").HasMaxLength(100); price.Property(x => x.GensetModel).HasColumnName("genset_model").HasMaxLength(120); price.Property(x => x.Kva).HasColumnName("kva").HasPrecision(10, 2); price.Property(x => x.PhaseCount).HasColumnName("phase_count");
+        price.Property(x => x.BasePrice).HasColumnName("base_price").HasPrecision(14, 2); price.Property(x => x.StandardMarkup).HasColumnName("standard_markup").HasPrecision(14, 2); price.Property(x => x.TransportCharge).HasColumnName("transport_charge").HasPrecision(14, 2); price.Property(x => x.InstallationCharge).HasColumnName("installation_charge").HasPrecision(14, 2); price.Property(x => x.AccessoryCharge).HasColumnName("accessory_charge").HasPrecision(14, 2); price.Property(x => x.GstPercent).HasColumnName("gst_percent").HasPrecision(5, 2);
+        price.Property(x => x.EffectiveFrom).HasColumnName("effective_from"); price.Property(x => x.EffectiveTo).HasColumnName("effective_to"); price.Property(x => x.IsActive).HasColumnName("is_active"); price.Property(x => x.ChangeReason).HasColumnName("change_reason").HasMaxLength(500); price.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+        price.HasIndex(x => new { x.Brand, x.Kva, x.PhaseCount, x.IsActive });
     }
 }

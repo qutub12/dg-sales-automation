@@ -10,6 +10,8 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 var connectionString = builder.Configuration.GetConnectionString("SalesDatabase")
     ?? Environment.GetEnvironmentVariable("CONNECTION_STRING")
     ?? throw new InvalidOperationException("Sales database connection string is not configured.");
@@ -28,7 +30,8 @@ builder.Services.AddSingleton<StandardQuotationCalculator>();
 builder.Services.AddSingleton<FollowUpScheduleService>();
 builder.Services.AddSingleton<ReferenceCatalogueService>();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<ApprovedPriceCatalogueService>();
+builder.Services.AddScoped<ApprovedPriceCatalogueService>();
+builder.Services.AddSingleton<AdminSessionService>();
 builder.Services.AddSingleton<QuotationPdfService>();
 builder.Services.AddSingleton<QuotationDocumentTokenService>();
 builder.Services.AddHttpClient<IWhatsAppProvider, MetaWhatsAppProvider>(client =>
@@ -51,10 +54,66 @@ builder.Services.AddScoped<VoiceRequirementToolService>();
 
 var app = builder.Build();
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
+app.UseDefaultFiles();
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path;
+    var protectedPath = path.StartsWithSegments("/admin")
+        || (path.StartsWithSegments("/api")
+            && !path.StartsWithSegments("/api/admin/session")
+            && !path.StartsWithSegments("/api/webhooks")
+            && !path.StartsWithSegments("/api/public")
+            && !path.StartsWithSegments("/api/voice/exotel-media"));
+    if (!protectedPath || context.RequestServices.GetRequiredService<AdminSessionService>()
+        .ValidateToken(context.Request.Cookies[AdminSessionService.CookieName])) await next();
+    else if (path.StartsWithSegments("/admin")) context.Response.Redirect("/login.html");
+    else context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+});
+app.UseStaticFiles();
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+app.MapPost("/api/admin/session", (AdminLoginRequest request, AdminSessionService sessions, IConfiguration configuration, HttpResponse response) =>
+{
+    if (!sessions.ValidateCredentials(request.Username, request.Password)) return Results.Unauthorized();
+    response.Cookies.Append(AdminSessionService.CookieName, sessions.CreateToken(), new CookieOptions
+        { HttpOnly = true, Secure = configuration.GetValue("Admin:SecureCookies", true), SameSite = SameSiteMode.Strict, MaxAge = TimeSpan.FromHours(8), Path = "/" });
+    return Results.Ok();
+});
+app.MapDelete("/api/admin/session", (HttpResponse response) => { response.Cookies.Delete(AdminSessionService.CookieName); return Results.Ok(); });
+
+app.MapGet("/api/admin/dashboard", async (SalesDbContext db, CancellationToken ct) => Results.Ok(new
+{
+    leads = await db.Leads.GroupBy(x => x.Status).Select(x => new { status = x.Key, count = x.Count() }).ToListAsync(ct),
+    failedCalls = await db.CallJobs.CountAsync(x => x.Status == CallJobStatus.Failed, ct),
+    pendingFollowUps = await db.FollowUpJobs.CountAsync(x => x.Status == FollowUpStatus.Queued, ct),
+    reviewRequired = await db.InboundLeadMessages.CountAsync(x => x.Status == InboundLeadStatus.ReviewRequired, ct),
+    ownerEscalations = await db.OwnerNotificationJobs.CountAsync(x => x.Status != OwnerNotificationStatus.Sent, ct),
+    recentLeads = await db.Leads.AsNoTracking().OrderByDescending(x => x.CreatedAtUtc).Take(30).ToListAsync(ct)
+}));
+
+app.MapGet("/api/admin/prices", async (SalesDbContext db, CancellationToken ct) =>
+    Results.Ok(await db.PriceCatalogueEntries.AsNoTracking().OrderByDescending(x => x.IsActive).ThenBy(x => x.Kva).ToListAsync(ct)));
+app.MapPost("/api/admin/prices", async (SavePriceRequest request, SalesDbContext db, TimeProvider clock, CancellationToken ct) =>
+{
+    try
+    {
+        var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
+        if (request.EffectiveFrom > today) return Results.BadRequest(new { error = "Future-dated prices are not supported in the MVP." });
+        var existing = await db.PriceCatalogueEntries.Where(x => x.IsActive && x.Brand.ToLower() == request.Brand.Trim().ToLower() && x.Kva == request.Kva && x.PhaseCount == request.PhaseCount).ToListAsync(ct);
+        existing.ForEach(x => x.Deactivate(today.AddDays(-1)));
+        var price = PriceCatalogueEntry.Create(request); db.PriceCatalogueEntries.Add(price); await db.SaveChangesAsync(ct);
+        return Results.Created($"/api/admin/prices/{price.Id}", price);
+    }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+});
+app.MapPost("/api/admin/leads/{id:guid}/status/{status}", async (Guid id, string status, SalesDbContext db, CancellationToken ct) =>
+{
+    var lead = await db.Leads.FindAsync([id], ct); if (lead is null) return Results.NotFound();
+    switch (status.ToLowerInvariant()) { case "won": lead.MarkWon(); break; case "lost": lead.MarkLost(); break; case "escalated": lead.MarkEscalated(); break; default: return Results.BadRequest(new { error = "Use won, lost or escalated." }); }
+    var jobs = await db.FollowUpJobs.Where(x => x.LeadId == id && x.Status == FollowUpStatus.Queued).ToListAsync(ct); jobs.ForEach(x => x.Cancel()); await db.SaveChangesAsync(ct); return Results.Ok(lead);
+});
 app.MapGet("/api/webhooks/whatsapp", (HttpRequest request, IConfiguration configuration) =>
 {
     var valid = request.Query["hub.mode"] == "subscribe"

@@ -18,6 +18,8 @@ builder.Services.AddSingleton<QuotationEligibilityService>();
 builder.Services.AddSingleton<StandardQuotationCalculator>();
 builder.Services.AddSingleton<FollowUpScheduleService>();
 builder.Services.AddSingleton<ReferenceCatalogueService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ApprovedPriceCatalogueService>();
 
 var app = builder.Build();
 app.UseSwagger();
@@ -78,6 +80,70 @@ app.MapPost("/api/tools/standard-quotation", (StandardQuotationRequest request, 
 });
 
 app.MapGet("/api/reference/catalogue/technical", (ReferenceCatalogueService catalogue) => catalogue.GetTechnical());
+
+app.MapPost("/api/leads/{id:guid}/requirements", async (
+    Guid id, CaptureRequirementRequest request, SalesDbContext db, CancellationToken cancellationToken) =>
+{
+    if (await db.Leads.FindAsync([id], cancellationToken) is null) return Results.NotFound();
+    if (request.Validate() is { } error) return Results.BadRequest(new { error });
+
+    var requirement = CustomerRequirement.Capture(id, request);
+    db.CustomerRequirements.Add(requirement);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Created($"/api/leads/{id}/requirements/{requirement.Id}", requirement);
+});
+
+app.MapGet("/api/leads/{id:guid}/requirements", async (Guid id, SalesDbContext db, CancellationToken cancellationToken) =>
+    Results.Ok(await db.CustomerRequirements.AsNoTracking()
+        .Where(x => x.LeadId == id)
+        .OrderByDescending(x => x.CapturedAtUtc)
+        .ToListAsync(cancellationToken)));
+
+app.MapPost("/api/leads/{leadId:guid}/requirements/{requirementId:guid}/quotation", async (
+    Guid leadId, Guid requirementId, SalesDbContext db, ApprovedPriceCatalogueService prices,
+    QuotationEligibilityService eligibility, StandardQuotationCalculator calculator, CancellationToken cancellationToken) =>
+{
+    var requirement = await db.CustomerRequirements.SingleOrDefaultAsync(
+        x => x.Id == requirementId && x.LeadId == leadId, cancellationToken);
+    if (requirement is null) return Results.NotFound();
+
+    var existingQuotation = await db.Quotations.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.RequirementId == requirementId, cancellationToken);
+    if (existingQuotation is not null)
+        return Results.Ok(new { quotation = existingQuotation, duplicate = true });
+
+    var price = requirement.RequestedKva is { } kva
+        ? prices.Find(kva, requirement.PhaseCount, requirement.PreferredBrand)
+        : null;
+    var assessment = eligibility.Assess(new(
+        requirement.IsComplete,
+        requirement.SizingConfirmed,
+        price is not null,
+        price is not null,
+        requirement.CustomDiscountRequested,
+        requirement.NonStandardTermsRequested,
+        requirement.DeliveryPromiseRequired,
+        requirement.HasValidationFlags));
+    if (!assessment.CanSendAutomatically)
+        return Results.Conflict(new { status = "ReviewRequired", assessment.ReviewReasons });
+
+    var calculated = calculator.Calculate(new(
+        price!.BasePrice, price.StandardMarkup, price.TransportCharge,
+        price.InstallationCharge, price.AccessoryCharge, price.GstPercent));
+    if (!calculated.IsValid) return Results.Conflict(new { status = "ReviewRequired", calculated.Errors });
+
+    var quotation = Quotation.Generate(
+        leadId, requirementId, price.Version, price.Brand, price.GensetModel,
+        price.Kva, price.PhaseCount, calculated.Subtotal, calculated.GstAmount, calculated.GrandTotal);
+    db.Quotations.Add(quotation);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Created($"/api/quotations/{quotation.Id}", new { quotation, duplicate = false });
+});
+
+app.MapGet("/api/quotations/{id:guid}", async (Guid id, SalesDbContext db, CancellationToken cancellationToken) =>
+    await db.Quotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken) is { } quotation
+        ? Results.Ok(quotation)
+        : Results.NotFound());
 
 app.Run();
 

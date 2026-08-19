@@ -7,4 +7,5 @@ node_modules/
 dist/
 *.user
 *.suo
-
+private-data/
+approved-prices*.json

@@ -55,10 +55,33 @@ public sealed class RequirementsAndQuotations : Migration
             constraints: table => table.PrimaryKey("pk_quotations", x => x.id));
         migrationBuilder.CreateIndex(name: "ix_quotations_quotation_number", table: "quotations", column: "quotation_number", unique: true);
         migrationBuilder.CreateIndex(name: "ix_quotations_requirement_id", table: "quotations", column: "requirement_id", unique: true);
+
+        migrationBuilder.CreateTable(
+            name: "whatsapp_delivery_jobs",
+            columns: table => new
+            {
+                id = table.Column<Guid>(type: "uuid", nullable: false),
+                quotation_id = table.Column<Guid>(type: "uuid", nullable: false),
+                lead_id = table.Column<Guid>(type: "uuid", nullable: false),
+                status = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
+                attempt_count = table.Column<int>(type: "integer", nullable: false),
+                scheduled_at_utc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                created_at_utc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                provider_message_id = table.Column<string>(type: "character varying(150)", maxLength: 150, nullable: true),
+                last_error = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true)
+            },
+            constraints: table => table.PrimaryKey("pk_whatsapp_delivery_jobs", x => x.id));
+        migrationBuilder.CreateIndex(
+            name: "ix_whatsapp_delivery_jobs_quotation_id_status",
+            table: "whatsapp_delivery_jobs",
+            columns: ["quotation_id", "status"],
+            unique: true,
+            filter: "status = 'Queued'");
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
+        migrationBuilder.DropTable("whatsapp_delivery_jobs");
         migrationBuilder.DropTable("quotations");
         migrationBuilder.DropTable("customer_requirements");
     }

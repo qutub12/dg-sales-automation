@@ -20,6 +20,8 @@ builder.Services.AddSingleton<FollowUpScheduleService>();
 builder.Services.AddSingleton<ReferenceCatalogueService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ApprovedPriceCatalogueService>();
+builder.Services.AddSingleton<QuotationPdfService>();
+builder.Services.AddSingleton<QuotationDocumentTokenService>();
 
 var app = builder.Build();
 app.UseSwagger();
@@ -144,6 +146,49 @@ app.MapGet("/api/quotations/{id:guid}", async (Guid id, SalesDbContext db, Cance
     await db.Quotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken) is { } quotation
         ? Results.Ok(quotation)
         : Results.NotFound());
+
+app.MapPost("/api/quotations/{id:guid}/whatsapp-delivery", async (
+    Guid id, SalesDbContext db, CancellationToken cancellationToken) =>
+{
+    var quotation = await db.Quotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+    if (quotation is null) return Results.NotFound();
+    var existing = await db.WhatsAppDeliveryJobs.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.QuotationId == id && x.Status == WhatsAppDeliveryStatus.Queued, cancellationToken);
+    if (existing is not null) return Results.Ok(new { deliveryJob = existing, duplicate = true });
+
+    var job = WhatsAppDeliveryJob.Queue(id, quotation.LeadId);
+    db.WhatsAppDeliveryJobs.Add(job);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Accepted($"/api/quotations/{id}", new { deliveryJob = job, duplicate = false });
+});
+
+app.MapPost("/api/quotations/{id:guid}/document-link", async (
+    Guid id, SalesDbContext db, QuotationDocumentTokenService tokens, IConfiguration configuration,
+    CancellationToken cancellationToken) =>
+{
+    if (!await db.Quotations.AsNoTracking().AnyAsync(x => x.Id == id, cancellationToken)) return Results.NotFound();
+    var baseUrl = configuration["QuotationDocuments:PublicBaseUrl"]?.TrimEnd('/');
+    if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out _))
+        return Results.Problem("Quotation document public base URL is not configured.", statusCode: 503);
+
+    var token = tokens.Create(id, TimeSpan.FromHours(24));
+    var url = $"{baseUrl}/api/public/quotations/{id}/pdf?expires={token.ExpiresUnix}&signature={token.Signature}";
+    return Results.Ok(new { url, expiresAtUtc = DateTimeOffset.FromUnixTimeSeconds(token.ExpiresUnix) });
+});
+
+app.MapGet("/api/public/quotations/{id:guid}/pdf", async (
+    Guid id, long expires, string signature, SalesDbContext db,
+    QuotationDocumentTokenService tokens, QuotationPdfService pdfs, CancellationToken cancellationToken) =>
+{
+    if (!tokens.Validate(id, expires, signature)) return Results.Unauthorized();
+    var quotation = await db.Quotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+    if (quotation is null) return Results.NotFound();
+    var lead = await db.Leads.AsNoTracking().SingleAsync(x => x.Id == quotation.LeadId, cancellationToken);
+    var requirement = await db.CustomerRequirements.AsNoTracking()
+        .SingleAsync(x => x.Id == quotation.RequirementId, cancellationToken);
+    var bytes = pdfs.Render(quotation, lead, requirement);
+    return Results.File(bytes, "application/pdf", $"{quotation.QuotationNumber}.pdf");
+});
 
 app.Run();
 

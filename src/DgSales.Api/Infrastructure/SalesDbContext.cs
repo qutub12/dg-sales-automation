@@ -9,6 +9,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     public DbSet<CallJob> CallJobs => Set<CallJob>();
     public DbSet<CustomerRequirement> CustomerRequirements => Set<CustomerRequirement>();
     public DbSet<Quotation> Quotations => Set<Quotation>();
+    public DbSet<WhatsAppDeliveryJob> WhatsAppDeliveryJobs => Set<WhatsAppDeliveryJob>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -84,5 +85,21 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         quotation.Property(x => x.GrandTotal).HasColumnName("grand_total").HasPrecision(14, 2);
         quotation.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(30);
         quotation.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+
+        var delivery = modelBuilder.Entity<WhatsAppDeliveryJob>();
+        delivery.ToTable("whatsapp_delivery_jobs");
+        delivery.HasKey(x => x.Id);
+        delivery.Property(x => x.Id).HasColumnName("id");
+        delivery.Property(x => x.QuotationId).HasColumnName("quotation_id");
+        delivery.Property(x => x.LeadId).HasColumnName("lead_id");
+        delivery.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(30);
+        delivery.Property(x => x.AttemptCount).HasColumnName("attempt_count");
+        delivery.Property(x => x.ScheduledAtUtc).HasColumnName("scheduled_at_utc");
+        delivery.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+        delivery.Property(x => x.ProviderMessageId).HasColumnName("provider_message_id").HasMaxLength(150);
+        delivery.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000);
+        delivery.HasIndex(x => new { x.QuotationId, x.Status })
+            .HasFilter("status = 'Queued'")
+            .IsUnique();
     }
 }

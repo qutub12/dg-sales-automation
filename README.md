@@ -34,6 +34,9 @@ To enable automatic standard quotations, create an approved catalogue outside th
 `Pricing__ApprovedCataloguePath` to its absolute path. If it is absent, inactive, expired, or does not
 match the requirement, the API safely returns `ReviewRequired` and does not generate a quotation.
 
+Quotation branding, signed PDF links and the provider-neutral WhatsApp delivery queue are described in
+[`docs/QUOTATION-DELIVERY.md`](docs/QUOTATION-DELIVERY.md).
+
 The API includes versioned EF Core migrations. Apply them explicitly during deployment, or run `dotnet ef database update --project src/DgSales.Api` for local development.
 
 Never commit production credentials. The existing mobile SIM remains the WhatsApp Business number. Automated calls use a telephony number with the verified business identity.

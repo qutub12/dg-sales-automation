@@ -13,7 +13,7 @@ public sealed partial class LeadMessageParser
         var phone = Value(text, "(?:mobile|phone|contact\u0020number|contact)");
         var city = Value(text, "(?:city|location)");
         var reference = Value(text, "(?:lead|enquiry|inquiry)(?:\u0020id|\u0020number|\u0020no)?");
-        var product = Value(text, "(?:product|query|requirement|looking\u0020for|power\s*\(kva\)|brand|probable\s+requirement\s+type)");
+        var product = Value(text, @"(?:product|query|requirement|looking\u0020for|power\s*\(kva\)|brand|probable\s+requirement\s+type)");
         phone = NormalizeCandidate(phone) ?? UnambiguousPhone(text);
         var flags = new List<string>();
         if (string.IsNullOrWhiteSpace(name)) flags.Add("CustomerNameMissing");

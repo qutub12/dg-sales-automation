@@ -29,7 +29,7 @@ public sealed class CustomerReplyService(SalesDbContext db)
     public static CustomerReplyDisposition Classify(string text)
     {
         var value = text.Trim().ToLowerInvariant();
-        if (Contains(value, "accept", "confirm", "book", "deal", "हो", "मंजूर", "मान्य")) return CustomerReplyDisposition.Accepted;
+        if (Contains(value, "accept", "confirm", "book", "deal", "होय", "स्वीकार", "मंजूर", "मान्य", "हाँ")) return CustomerReplyDisposition.Accepted;
         if (Contains(value, "not interested", "reject", "cancel", "नको", "नहीं चाहिए", "नाही पाहिजे")) return CustomerReplyDisposition.Rejected;
         if (Contains(value, "call me", "human", "owner", "भाई", "बोलना", "फोन करा", "कॉल करा")) return CustomerReplyDisposition.HumanHelp;
         if (Contains(value, "interested", "price", "discount", "visit", "details", "quotation", "कोटेशन", "किंमत")) return CustomerReplyDisposition.Interested;

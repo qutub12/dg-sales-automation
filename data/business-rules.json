@@ -1,0 +1,32 @@
+{
+  "version": "2026-08-22",
+  "commercial": {
+    "gstPercent": 18,
+    "advancePercent": 30,
+    "balancePercent": 70,
+    "balanceDue": "Before dispatch",
+    "quotationValidityDays": 30,
+    "standardLeadTimeDays": 15,
+    "transport": "Arranged by seller; amount requires owner confirmation for every quotation",
+    "installation": "Customer scope unless separately requested and owner-approved",
+    "unloading": "Customer scope",
+    "priceApprovalRequired": true,
+    "stockAndDeliveryConfirmationRequired": true
+  },
+  "warranty": {
+    "Kirloskar": "18 months from factory dispatch, 12 months from commissioning, or 3600 operating hours, whichever is earlier; extended terms only under the applicable KOEL policy.",
+    "Ashok Leyland": "Engine: 60 months from Ashok Leyland engine sale or 8000 operating hours, whichever is earlier; other components follow their manufacturers' warranties.",
+    "Cummins": "Use the warranty stated in the applicable current Cummins product/offer document; owner review required before quotation."
+  },
+  "qualification": {
+    "qualified": "Contactable buyer with location, purchase/rental intent, application and capacity or equipment-load details confirmed.",
+    "highPriority": "Required within 30 days, rental enquiry, repeat buyer, confirmed budget/purchase intent, or urgent breakdown/replacement.",
+    "readyForQuotation": "Requirement and sizing confirmed and owner has approved price, transport, installation scope, availability and delivery wording.",
+    "siteVisit": "Capacity cannot be safely determined remotely, multiple motors start together, complex industrial load, installation/access constraints, acoustic/exhaust/cabling work, or rating above 250 kVA.",
+    "ownerCallback": "Rental, negotiation, discount, finance, non-standard terms, stock/delivery commitment, competitor matching, complaint, or uncertain technical recommendation.",
+    "invalid": "Unreachable/invalid phone, spam, unrelated request, or no generator requirement after verification.",
+    "duplicate": "Same normalized phone already exists; attach the new source event to the existing lead.",
+    "outsideServiceArea": "Installation location is outside the configured service-area list; owner decides whether to proceed.",
+    "notInterested": "Customer clearly declines and has not asked for a later callback."
+  }
+}

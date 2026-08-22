@@ -14,6 +14,8 @@ public sealed record QuotationEligibilityResult(bool CanSendAutomatically, IRead
 
 public sealed class QuotationEligibilityService
 {
+    private readonly IConfiguration? configuration;
+    public QuotationEligibilityService(IConfiguration? configuration = null) => this.configuration = configuration;
     public QuotationEligibilityResult Assess(QuotationEligibilityRequest request)
     {
         var reasons = new List<string>();
@@ -25,6 +27,8 @@ public sealed class QuotationEligibilityService
         if (request.NonStandardTermsRequested) reasons.Add("Customer requested non-standard commercial terms.");
         if (request.StockOrDeliveryPromiseRequired) reasons.Add("Stock or delivery requires owner confirmation.");
         if (request.HasValidationFlags) reasons.Add("Requirement contains validation or confidence flags.");
+        if (configuration?.GetValue<bool>("Pricing:RequireOwnerApprovalForEveryQuotation") == true)
+            reasons.Add("Owner must confirm price, transport, installation requirement and delivery before sending.");
         return new(reasons.Count == 0, reasons);
     }
 }

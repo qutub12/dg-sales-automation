@@ -29,6 +29,7 @@ public sealed class VoiceCallWorker(
         if (await db.AutomationControls.AnyAsync(x => x.Name == "calls" && x.IsPaused, cancellationToken)) return;
         var provider = scope.ServiceProvider.GetRequiredService<IVoiceCallProvider>();
         var now = timeProvider.GetUtcNow();
+        if (!WithinCallingHours(now)) return;
         var job = await db.CallJobs.Where(x => x.Status == CallJobStatus.Queued && x.ScheduledAtUtc <= now)
             .OrderBy(x => x.ScheduledAtUtc).FirstOrDefaultAsync(cancellationToken);
         if (job is null) return;
@@ -54,10 +55,23 @@ public sealed class VoiceCallWorker(
         }
         catch (Exception exception)
         {
-            job.MarkFailed(exception.Message, job.AttemptCount < 2, now.AddMinutes(5));
+            var maximumAttempts = Math.Max(1, configuration.GetValue("Business:Calling:MaximumAttempts", 3));
+            var retryMinutes = Math.Max(5, configuration.GetValue("Business:Calling:RetryMinutes", 15));
+            job.MarkFailed(exception.Message, job.AttemptCount < maximumAttempts, now.AddMinutes(retryMinutes));
             logger.LogWarning(exception, "Starting voice call {CallJobId} failed.", job.Id);
         }
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private bool WithinCallingHours(DateTimeOffset utcNow)
+    {
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(configuration["Business:Calling:TimeZone"] ?? "Asia/Kolkata");
+        var local = TimeZoneInfo.ConvertTime(utcNow, zone);
+        var days = configuration.GetSection("Business:Calling:WorkingDays").Get<string[]>() ?? [];
+        if (!days.Contains(local.DayOfWeek.ToString(), StringComparer.OrdinalIgnoreCase)) return false;
+        return TimeOnly.TryParse(configuration["Business:Calling:Start"], out var start)
+            && TimeOnly.TryParse(configuration["Business:Calling:End"], out var end)
+            && TimeOnly.FromDateTime(local.DateTime) >= start && TimeOnly.FromDateTime(local.DateTime) <= end;
     }
 
     private Uri BuildStatusWebhook(string baseUrl)

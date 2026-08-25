@@ -8,16 +8,15 @@ Voice-first sales automation for a diesel-generator business. The MVP captures I
 - Voice-call queue and provider-neutral telephony adapter
 - Structured DG requirement capture
 - Deterministic sizing and quotation eligibility rules
-- Automatic standard quotation workflow
-- Human escalation for uncertainty, negotiation or non-standard pricing
+- WhatsApp-first owner pricing and approval workflow
+- Automatic GST calculation and branded quotation preview
+- Human escalation for uncertainty, negotiation or non-standard requirements
 - WhatsApp quotation delivery and Day 1/3/6/7 follow-ups
 
 ## Technology
 
 - ASP.NET Core 10 Web API
 - PostgreSQL
-- Angular PWA (next slice)
-- n8n for integrations and scheduled orchestration
 - Exotel-compatible telephony boundary
 - WhatsApp Cloud API boundary
 
@@ -29,11 +28,17 @@ Voice-first sales automation for a diesel-generator business. The MVP captures I
 4. Run `dotnet run --project src/DgSales.Api`.
 5. Open `/swagger`.
 
-To enable automatic standard quotations, create an approved catalogue outside the repository using
-[`docs/APPROVED-PRICE-CATALOGUE.md`](docs/APPROVED-PRICE-CATALOGUE.md), then set
-`Pricing__ApprovedCataloguePath` to its absolute path. If it is absent, inactive, expired, or does not
-match the requirement, the API safely returns `ReviewRequired` and does not generate a quotation.
+The live workflow asks the owner for selling price, transport and installation when applicable through
+WhatsApp. GST is calculated automatically; the branded quotation is sent to the owner and cannot reach
+the customer until the owner replies with the matching coded approval.
+
+Quotation branding, signed PDF links and the provider-neutral WhatsApp delivery queue are described in
+[`docs/QUOTATION-DELIVERY.md`](docs/QUOTATION-DELIVERY.md).
 
 The API includes versioned EF Core migrations. Apply them explicitly during deployment, or run `dotnet ef database update --project src/DgSales.Api` for local development.
 
 Never commit production credentials. The existing mobile SIM remains the WhatsApp Business number. Automated calls use a telephony number with the verified business identity.
+
+Production preparation and the exact external inputs still required are documented in
+[`docs/PRODUCTION-DEPLOYMENT.md`](docs/PRODUCTION-DEPLOYMENT.md) and
+[`docs/LAUNCH-CHECKLIST.md`](docs/LAUNCH-CHECKLIST.md).

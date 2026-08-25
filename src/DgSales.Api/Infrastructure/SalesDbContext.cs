@@ -9,6 +9,15 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     public DbSet<CallJob> CallJobs => Set<CallJob>();
     public DbSet<CustomerRequirement> CustomerRequirements => Set<CustomerRequirement>();
     public DbSet<Quotation> Quotations => Set<Quotation>();
+    public DbSet<WhatsAppDeliveryJob> WhatsAppDeliveryJobs => Set<WhatsAppDeliveryJob>();
+    public DbSet<VoiceCallResult> VoiceCallResults => Set<VoiceCallResult>();
+    public DbSet<InboundLeadMessage> InboundLeadMessages => Set<InboundLeadMessage>();
+    public DbSet<FollowUpJob> FollowUpJobs => Set<FollowUpJob>();
+    public DbSet<CustomerReply> CustomerReplies => Set<CustomerReply>();
+    public DbSet<OwnerNotificationJob> OwnerNotificationJobs => Set<OwnerNotificationJob>();
+    public DbSet<PriceCatalogueEntry> PriceCatalogueEntries => Set<PriceCatalogueEntry>();
+    public DbSet<AutomationControl> AutomationControls => Set<AutomationControl>();
+    public DbSet<OwnerQuotationApproval> OwnerQuotationApprovals => Set<OwnerQuotationApproval>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -25,6 +34,8 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         lead.Property(x => x.IsInServiceArea).HasColumnName("is_in_service_area");
         lead.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(40);
         lead.Property(x => x.PreferredLanguage).HasColumnName("preferred_language").HasConversion<string>().HasMaxLength(20);
+        lead.Property(x => x.ContactAllowed).HasColumnName("contact_allowed");
+        lead.Property(x => x.ContactRestrictionReason).HasColumnName("contact_restriction_reason").HasMaxLength(500);
         lead.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         lead.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
         lead.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
@@ -40,6 +51,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         callJob.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         callJob.Property(x => x.ProviderCallId).HasColumnName("provider_call_id").HasMaxLength(120);
         callJob.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000);
+        callJob.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
         callJob.HasIndex(x => new { x.LeadId, x.Status })
             .HasFilter("status = 'Queued'")
             .IsUnique();
@@ -58,6 +70,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         requirement.Property(x => x.CustomDiscountRequested).HasColumnName("custom_discount_requested");
         requirement.Property(x => x.NonStandardTermsRequested).HasColumnName("non_standard_terms_requested");
         requirement.Property(x => x.DeliveryPromiseRequired).HasColumnName("delivery_promise_required");
+        requirement.Property(x => x.InstallationRequired).HasColumnName("installation_required");
         requirement.Property(x => x.ValidationFlagsJson).HasColumnName("validation_flags_json").HasColumnType("jsonb");
         requirement.Property(x => x.CapturedAtUtc).HasColumnName("captured_at_utc");
         requirement.Ignore(x => x.IsComplete);
@@ -79,10 +92,97 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         quotation.Property(x => x.GensetModel).HasColumnName("genset_model").HasMaxLength(120);
         quotation.Property(x => x.Kva).HasColumnName("kva").HasPrecision(10, 2);
         quotation.Property(x => x.PhaseCount).HasColumnName("phase_count");
+        quotation.Property(x => x.SellingPrice).HasColumnName("selling_price").HasPrecision(14, 2);
+        quotation.Property(x => x.TransportCharge).HasColumnName("transport_charge").HasPrecision(14, 2);
+        quotation.Property(x => x.InstallationCharge).HasColumnName("installation_charge").HasPrecision(14, 2);
         quotation.Property(x => x.Subtotal).HasColumnName("subtotal").HasPrecision(14, 2);
         quotation.Property(x => x.GstAmount).HasColumnName("gst_amount").HasPrecision(14, 2);
         quotation.Property(x => x.GrandTotal).HasColumnName("grand_total").HasPrecision(14, 2);
         quotation.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(30);
         quotation.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+
+        var delivery = modelBuilder.Entity<WhatsAppDeliveryJob>();
+        delivery.ToTable("whatsapp_delivery_jobs");
+        delivery.HasKey(x => x.Id);
+        delivery.Property(x => x.Id).HasColumnName("id");
+        delivery.Property(x => x.QuotationId).HasColumnName("quotation_id");
+        delivery.Property(x => x.LeadId).HasColumnName("lead_id");
+        delivery.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(30);
+        delivery.Property(x => x.AttemptCount).HasColumnName("attempt_count");
+        delivery.Property(x => x.ScheduledAtUtc).HasColumnName("scheduled_at_utc");
+        delivery.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+        delivery.Property(x => x.ProviderMessageId).HasColumnName("provider_message_id").HasMaxLength(150);
+        delivery.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000);
+        delivery.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
+        delivery.HasIndex(x => new { x.QuotationId, x.Status })
+            .HasFilter("status = 'Queued'")
+            .IsUnique();
+
+        var callResult = modelBuilder.Entity<VoiceCallResult>();
+        callResult.ToTable("voice_call_results");
+        callResult.HasKey(x => x.Id);
+        callResult.Property(x => x.Id).HasColumnName("id");
+        callResult.Property(x => x.CallJobId).HasColumnName("call_job_id");
+        callResult.HasIndex(x => x.CallJobId).IsUnique();
+        callResult.Property(x => x.LeadId).HasColumnName("lead_id");
+        callResult.Property(x => x.ProviderCallId).HasColumnName("provider_call_id").HasMaxLength(150);
+        callResult.HasIndex(x => x.ProviderCallId).IsUnique();
+        callResult.Property(x => x.Outcome).HasColumnName("outcome").HasConversion<string>().HasMaxLength(40);
+        callResult.Property(x => x.DetectedLanguage).HasColumnName("detected_language").HasConversion<string>().HasMaxLength(20);
+        callResult.Property(x => x.AutomationDisclosed).HasColumnName("automation_disclosed");
+        callResult.Property(x => x.RecordingConsentGiven).HasColumnName("recording_consent_given");
+        callResult.Property(x => x.Transcript).HasColumnName("transcript");
+        callResult.Property(x => x.RequestedCallbackAtUtc).HasColumnName("requested_callback_at_utc");
+        callResult.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
+
+        var inbound = modelBuilder.Entity<InboundLeadMessage>();
+        inbound.ToTable("inbound_lead_messages");
+        inbound.HasKey(x => x.Id);
+        inbound.Property(x => x.Id).HasColumnName("id");
+        inbound.Property(x => x.Channel).HasColumnName("channel").HasConversion<string>().HasMaxLength(40);
+        inbound.Property(x => x.ExternalMessageId).HasColumnName("external_message_id").HasMaxLength(300);
+        inbound.HasIndex(x => new { x.Channel, x.ExternalMessageId }).IsUnique();
+        inbound.Property(x => x.Sender).HasColumnName("sender").HasMaxLength(300);
+        inbound.Property(x => x.Subject).HasColumnName("subject").HasMaxLength(500);
+        inbound.Property(x => x.RawText).HasColumnName("raw_text");
+        inbound.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(40);
+        inbound.Property(x => x.LeadId).HasColumnName("lead_id");
+        inbound.Property(x => x.ProcessingNote).HasColumnName("processing_note").HasMaxLength(1000);
+        inbound.Property(x => x.ReceivedAtUtc).HasColumnName("received_at_utc");
+        inbound.Property(x => x.ProcessedAtUtc).HasColumnName("processed_at_utc");
+
+        var followUp = modelBuilder.Entity<FollowUpJob>();
+        followUp.ToTable("follow_up_jobs"); followUp.HasKey(x => x.Id);
+        followUp.Property(x => x.Id).HasColumnName("id"); followUp.Property(x => x.LeadId).HasColumnName("lead_id"); followUp.Property(x => x.QuotationId).HasColumnName("quotation_id");
+        followUp.Property(x => x.Step).HasColumnName("step"); followUp.HasIndex(x => new { x.QuotationId, x.Step }).IsUnique();
+        followUp.Property(x => x.Purpose).HasColumnName("purpose").HasMaxLength(300); followUp.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(30);
+        followUp.Property(x => x.ScheduledAtUtc).HasColumnName("scheduled_at_utc"); followUp.Property(x => x.AttemptCount).HasColumnName("attempt_count");
+        followUp.Property(x => x.ProviderMessageId).HasColumnName("provider_message_id").HasMaxLength(150); followUp.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000);
+        followUp.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc"); followUp.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
+
+        var reply = modelBuilder.Entity<CustomerReply>(); reply.ToTable("customer_replies"); reply.HasKey(x => x.Id);
+        reply.Property(x => x.Id).HasColumnName("id"); reply.Property(x => x.LeadId).HasColumnName("lead_id"); reply.Property(x => x.ExternalMessageId).HasColumnName("external_message_id").HasMaxLength(200); reply.HasIndex(x => x.ExternalMessageId).IsUnique();
+        reply.Property(x => x.Text).HasColumnName("text").HasMaxLength(5000); reply.Property(x => x.Disposition).HasColumnName("disposition").HasConversion<string>().HasMaxLength(30); reply.Property(x => x.ReceivedAtUtc).HasColumnName("received_at_utc");
+
+        var owner = modelBuilder.Entity<OwnerNotificationJob>(); owner.ToTable("owner_notification_jobs"); owner.HasKey(x => x.Id);
+        owner.Property(x => x.Id).HasColumnName("id"); owner.Property(x => x.LeadId).HasColumnName("lead_id"); owner.Property(x => x.CustomerReplyId).HasColumnName("customer_reply_id"); owner.HasIndex(x => x.CustomerReplyId).IsUnique();
+        owner.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(30); owner.Property(x => x.AttemptCount).HasColumnName("attempt_count"); owner.Property(x => x.ScheduledAtUtc).HasColumnName("scheduled_at_utc");
+        owner.Property(x => x.ProviderMessageId).HasColumnName("provider_message_id").HasMaxLength(150); owner.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000); owner.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
+
+        var price = modelBuilder.Entity<PriceCatalogueEntry>(); price.ToTable("price_catalogue_entries"); price.HasKey(x => x.Id);
+        price.Property(x => x.Id).HasColumnName("id"); price.Property(x => x.Version).HasColumnName("version").HasMaxLength(50); price.HasIndex(x => x.Version).IsUnique();
+        price.Property(x => x.Brand).HasColumnName("brand").HasMaxLength(100); price.Property(x => x.GensetModel).HasColumnName("genset_model").HasMaxLength(120); price.Property(x => x.Kva).HasColumnName("kva").HasPrecision(10, 2); price.Property(x => x.PhaseCount).HasColumnName("phase_count");
+        price.Property(x => x.BasePrice).HasColumnName("base_price").HasPrecision(14, 2); price.Property(x => x.StandardMarkup).HasColumnName("standard_markup").HasPrecision(14, 2); price.Property(x => x.TransportCharge).HasColumnName("transport_charge").HasPrecision(14, 2); price.Property(x => x.InstallationCharge).HasColumnName("installation_charge").HasPrecision(14, 2); price.Property(x => x.AccessoryCharge).HasColumnName("accessory_charge").HasPrecision(14, 2); price.Property(x => x.GstPercent).HasColumnName("gst_percent").HasPrecision(5, 2);
+        price.Property(x => x.EffectiveFrom).HasColumnName("effective_from"); price.Property(x => x.EffectiveTo).HasColumnName("effective_to"); price.Property(x => x.IsActive).HasColumnName("is_active"); price.Property(x => x.ChangeReason).HasColumnName("change_reason").HasMaxLength(500); price.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+        price.HasIndex(x => new { x.Brand, x.Kva, x.PhaseCount, x.IsActive });
+
+        var control = modelBuilder.Entity<AutomationControl>(); control.ToTable("automation_controls"); control.HasKey(x => x.Name);
+        control.Property(x => x.Name).HasColumnName("name").HasMaxLength(40); control.Property(x => x.IsPaused).HasColumnName("is_paused"); control.Property(x => x.Reason).HasColumnName("reason").HasMaxLength(500); control.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
+
+        var approval = modelBuilder.Entity<OwnerQuotationApproval>(); approval.ToTable("owner_quotation_approvals"); approval.HasKey(x => x.Id);
+        approval.Property(x => x.Id).HasColumnName("id"); approval.Property(x => x.LeadId).HasColumnName("lead_id"); approval.Property(x => x.RequirementId).HasColumnName("requirement_id"); approval.HasIndex(x => x.RequirementId).IsUnique(); approval.Property(x => x.QuotationId).HasColumnName("quotation_id"); approval.HasIndex(x => x.QuotationId).IsUnique();
+        approval.Property(x => x.RequestCode).HasColumnName("request_code").HasMaxLength(20); approval.HasIndex(x => x.RequestCode).IsUnique(); approval.Property(x => x.Brand).HasColumnName("brand").HasMaxLength(100); approval.Property(x => x.GensetModel).HasColumnName("genset_model").HasMaxLength(120); approval.Property(x => x.Kva).HasColumnName("kva").HasPrecision(10, 2); approval.Property(x => x.PhaseCount).HasColumnName("phase_count"); approval.Property(x => x.InstallationRequired).HasColumnName("installation_required");
+        approval.Property(x => x.SellingPrice).HasColumnName("selling_price").HasPrecision(14, 2); approval.Property(x => x.TransportCharge).HasColumnName("transport_charge").HasPrecision(14, 2); approval.Property(x => x.InstallationCharge).HasColumnName("installation_charge").HasPrecision(14, 2); approval.Property(x => x.GstPercent).HasColumnName("gst_percent").HasPrecision(5, 2);
+        approval.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(40); approval.Property(x => x.ProviderMessageId).HasColumnName("provider_message_id").HasMaxLength(150); approval.Property(x => x.OwnerReply).HasColumnName("owner_reply").HasMaxLength(2000); approval.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000); approval.Property(x => x.AttemptCount).HasColumnName("attempt_count"); approval.Property(x => x.ScheduledAtUtc).HasColumnName("scheduled_at_utc"); approval.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc"); approval.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc"); approval.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
     }
 }

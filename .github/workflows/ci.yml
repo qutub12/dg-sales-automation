@@ -22,3 +22,5 @@ jobs:
       - run: dotnet restore DgSales.slnx
       - run: dotnet build DgSales.slnx --configuration Release --no-restore
       - run: dotnet test DgSales.slnx --configuration Release --no-build
+      - run: dotnet publish src/DgSales.Api/DgSales.Api.csproj --configuration Release --no-build --output artifacts/api
+      - run: docker build --tag dg-sales-automation:ci .

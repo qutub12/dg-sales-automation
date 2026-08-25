@@ -1,8 +1,8 @@
 namespace DgSales.Api.Application;
 
-public sealed class ServiceAreaMatcher
+public sealed class ServiceAreaMatcher(IConfiguration? configuration = null)
 {
-    private static readonly string[] SupportedCities =
+    private static readonly string[] DefaultCities =
     [
         "nagpur", "bhandara", "gondia", "amravati", "akola", "washim", "chandrapur", "yavatmal"
     ];
@@ -11,6 +11,8 @@ public sealed class ServiceAreaMatcher
     {
         if (string.IsNullOrWhiteSpace(city)) return false;
         var normalized = city.Trim().ToLowerInvariant();
-        return SupportedCities.Any(x => normalized.Contains(x, StringComparison.Ordinal));
+        var configured = configuration?.GetSection("Business:ServiceAreas").Get<string[]>();
+        return (configured is { Length: > 0 } ? configured : DefaultCities)
+            .Any(x => normalized.Contains(x.Trim().ToLowerInvariant(), StringComparison.Ordinal));
     }
 }

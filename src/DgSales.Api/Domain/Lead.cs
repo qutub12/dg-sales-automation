@@ -3,6 +3,22 @@ namespace DgSales.Api.Domain;
 public enum LeadSource { IndiaMartEmail, IndiaMartApi, JustdialWhatsApp, Manual }
 public enum LeadStatus { New, CallQueued, Calling, Qualified, QuotationPending, QuotationSent, FollowUp, Won, Lost, Escalated }
 public enum PreferredLanguage { Unknown, Hindi, English, Marathi, Mixed }
+public sealed record UpdateLeadRequest(string CustomerName, string Phone, string? City);
+public sealed record CreateManualLeadRequest(
+    string CustomerName, string Phone, string City, PreferredLanguage PreferredLanguage,
+    string? SourceReference, string CallAction, DateTimeOffset? ScheduledAtUtc)
+{
+    public string? Validate(DateTimeOffset now)
+    {
+        var error = new CreateLeadRequest(CustomerName, Phone, City, LeadSource.Manual, SourceReference).Validate();
+        if (error is not null) return error;
+        if (string.IsNullOrWhiteSpace(City)) return "City is required.";
+        if (CallAction is not "now" and not "later" and not "none") return "Call action must be now, later or none.";
+        if (CallAction == "later" && ScheduledAtUtc is null) return "Scheduled call time is required.";
+        if (ScheduledAtUtc > now.AddDays(30)) return "A call cannot be scheduled more than 30 days ahead.";
+        return null;
+    }
+}
 
 public sealed record CreateLeadRequest(
     string CustomerName,
@@ -32,6 +48,8 @@ public sealed class Lead
     public bool IsInServiceArea { get; private set; }
     public LeadStatus Status { get; private set; } = LeadStatus.New;
     public PreferredLanguage PreferredLanguage { get; private set; }
+    public bool ContactAllowed { get; private set; } = true;
+    public string? ContactRestrictionReason { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAtUtc { get; private set; } = DateTimeOffset.UtcNow;
     public uint Version { get; private set; }
@@ -59,6 +77,37 @@ public sealed class Lead
         PreferredLanguage = language;
         UpdatedAtUtc = DateTimeOffset.UtcNow;
     }
+
+    public void MarkQualified()
+    {
+        Status = LeadStatus.Qualified;
+        UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    public void MarkQuotationPending()
+    {
+        Status = LeadStatus.QuotationPending;
+        UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    public void MarkEscalated()
+    {
+        Status = LeadStatus.Escalated;
+        UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    public void MarkQuotationSent() { Status = LeadStatus.QuotationSent; UpdatedAtUtc = DateTimeOffset.UtcNow; }
+    public void MarkFollowUp() { Status = LeadStatus.FollowUp; UpdatedAtUtc = DateTimeOffset.UtcNow; }
+    public void MarkWon() { Status = LeadStatus.Won; UpdatedAtUtc = DateTimeOffset.UtcNow; }
+    public void MarkLost() { Status = LeadStatus.Lost; UpdatedAtUtc = DateTimeOffset.UtcNow; }
+    public void UpdateContact(UpdateLeadRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.CustomerName)) throw new ArgumentException("Customer name is required.");
+        var normalized = NormalizePhone(request.Phone); if (normalized.Length != 13) throw new ArgumentException("Valid Indian mobile number is required.");
+        CustomerName = request.CustomerName.Trim(); Phone = normalized; City = request.City?.Trim(); UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
+    public void RestrictContact(string reason) { ContactAllowed = false; ContactRestrictionReason = string.IsNullOrWhiteSpace(reason) ? "Customer opted out." : reason.Trim(); UpdatedAtUtc = DateTimeOffset.UtcNow; }
+    public void AllowContact() { ContactAllowed = true; ContactRestrictionReason = null; UpdatedAtUtc = DateTimeOffset.UtcNow; }
 
     public static string NormalizePhone(string value)
     {

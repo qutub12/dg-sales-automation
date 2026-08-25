@@ -29,17 +29,7 @@ public sealed class MetaWhatsAppProvider(HttpClient httpClient, IConfiguration c
             {
                 name = request.TemplateName,
                 language = new { code = request.LanguageCode },
-                components = new[]
-                {
-                    new
-                    {
-                        type = "header",
-                        parameters = new[]
-                        {
-                            new { type = "document", document = new { link = request.DocumentUri.ToString(), filename = request.FileName } }
-                        }
-                    }
-                }
+                components = BuildDocumentComponents(request)
             }
         });
 
@@ -51,6 +41,17 @@ public sealed class MetaWhatsAppProvider(HttpClient httpClient, IConfiguration c
         using var json = JsonDocument.Parse(body);
         var id = json.RootElement.GetProperty("messages")[0].GetProperty("id").GetString();
         return new(id ?? throw new InvalidOperationException("WhatsApp response did not contain a message id."), "accepted");
+    }
+
+    private static object[] BuildDocumentComponents(SendWhatsAppDocumentRequest request)
+    {
+        var components = new List<object>
+        {
+            new { type = "header", parameters = new[] { new { type = "document", document = new { link = request.DocumentUri.ToString(), filename = request.FileName } } } }
+        };
+        if (request.BodyParameters is { Count: > 0 })
+            components.Add(new { type = "body", parameters = request.BodyParameters.Select(x => new { type = "text", text = x }).ToArray() });
+        return components.ToArray();
     }
 
     private async Task<SendWhatsAppResult> SendAsync(string phone, object template, CancellationToken cancellationToken)

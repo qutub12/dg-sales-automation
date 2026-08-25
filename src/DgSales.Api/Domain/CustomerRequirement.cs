@@ -10,7 +10,8 @@ public sealed record CaptureRequirementRequest(
     bool CustomDiscountRequested,
     bool NonStandardTermsRequested,
     bool DeliveryPromiseRequired,
-    IReadOnlyCollection<string>? ValidationFlags)
+    IReadOnlyCollection<string>? ValidationFlags,
+    bool InstallationRequired = false)
 {
     public string? Validate()
     {
@@ -37,6 +38,7 @@ public sealed class CustomerRequirement
     public bool CustomDiscountRequested { get; private set; }
     public bool NonStandardTermsRequested { get; private set; }
     public bool DeliveryPromiseRequired { get; private set; }
+    public bool InstallationRequired { get; private set; }
     [System.Text.Json.Serialization.JsonIgnore]
     public string ValidationFlagsJson { get; private set; } = "[]";
     public DateTimeOffset CapturedAtUtc { get; private set; } = DateTimeOffset.UtcNow;
@@ -62,6 +64,7 @@ public sealed class CustomerRequirement
         CustomDiscountRequested = request.CustomDiscountRequested,
         NonStandardTermsRequested = request.NonStandardTermsRequested,
         DeliveryPromiseRequired = request.DeliveryPromiseRequired,
+        InstallationRequired = request.InstallationRequired,
         ValidationFlagsJson = System.Text.Json.JsonSerializer.Serialize(
             request.ValidationFlags?.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct().ToArray() ?? [])
     };

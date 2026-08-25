@@ -74,6 +74,9 @@ public sealed class QuotationPdfService(IConfiguration configuration)
         DrawCell(graphics, regular, dark, Money(quotation.Subtotal), 457, y, 96, XStringFormats.TopRight);
         y += 40;
 
+        DrawAmount(graphics, regular, dark, "Selling price", quotation.SellingPrice, y); y += 20;
+        DrawAmount(graphics, regular, dark, "Transport", quotation.TransportCharge, y); y += 20;
+        if (quotation.InstallationCharge > 0) { DrawAmount(graphics, regular, dark, "Installation", quotation.InstallationCharge, y); y += 20; }
         DrawAmount(graphics, regular, dark, "Subtotal", quotation.Subtotal, y); y += 20;
         DrawAmount(graphics, regular, dark, "GST", quotation.GstAmount, y); y += 24;
         graphics.DrawLine(new XPen(accent, 1.5), 350, y, 553, y); y += 10;

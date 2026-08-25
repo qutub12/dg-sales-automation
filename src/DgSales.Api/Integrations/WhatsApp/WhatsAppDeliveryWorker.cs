@@ -44,6 +44,8 @@ public sealed class WhatsAppDeliveryWorker(
         try
         {
             var quotation = await db.Quotations.SingleAsync(x => x.Id == job.QuotationId, cancellationToken);
+            if (quotation.Status != QuotationStatus.Approved)
+                throw new InvalidOperationException("Customer delivery is blocked until the owner approves the quotation.");
             var lead = await db.Leads.SingleAsync(x => x.Id == job.LeadId, cancellationToken);
             if (!lead.ContactAllowed) throw new InvalidOperationException("Contact is blocked for this customer.");
             var baseUrl = configuration["QuotationDocuments:PublicBaseUrl"]?.TrimEnd('/')

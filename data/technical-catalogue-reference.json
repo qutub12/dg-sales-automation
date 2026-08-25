@@ -5,6 +5,7 @@
   { "brand": "Kirloskar", "gensetModel": "KG4-20WS1", "kva": 20, "kwe": 16, "phaseCount": 3, "engineModel": "3R550TA 4G1", "compliance": "CPCB IV+ / ISO 8528 prime", "sourceDocument": "Kirloskar CPCB IV+ 7.5-20 kVA" },
   { "brand": "Cummins", "gensetModel": "C20D5P", "kva": 20, "kwe": 16, "phaseCount": 3, "engineModel": "X1.3TAA-G7", "compliance": "Prime / ISO 8528-5 G2", "sourceDocument": "X1.3TAA-G7 20 kVA" },
   { "brand": "Cummins", "gensetModel": "C18.5D5P", "kva": 18.5, "kwe": 14.8, "phaseCount": 1, "engineModel": "X1.3TAA-G7", "compliance": "Prime / ISO 8528-5 G2", "sourceDocument": "X1.3TAA-G7 20 kVA" },
+  { "brand": "Cummins", "gensetModel": "QSB4.5-G2 DG Set", "kva": 125, "kwe": 100, "phaseCount": 3, "engineModel": "QSB4.5-G2", "compliance": "CPCB IV+", "sourceDocument": "QTA09 Cummins 125 kVA offer" },
   { "brand": "Cummins", "gensetModel": "CI160D5P", "kva": 160, "kwe": 128, "phaseCount": 3, "engineModel": "QSB6.7-G21", "compliance": "CPCB IV+ prime", "sourceDocument": "Cummins 160-250 kVA India" },
   { "brand": "Cummins", "gensetModel": "CI180D5P", "kva": 180, "kwe": 144, "phaseCount": 3, "engineModel": "QSB6.7-G22", "compliance": "CPCB IV+ prime", "sourceDocument": "Cummins 160-250 kVA India" },
   { "brand": "Cummins", "gensetModel": "CI200D5P", "kva": 200, "kwe": 160, "phaseCount": 3, "engineModel": "QSB6.7-G22", "compliance": "CPCB IV+ prime", "sourceDocument": "Cummins 160-250 kVA India" },

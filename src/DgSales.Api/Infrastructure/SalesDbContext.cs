@@ -17,6 +17,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     public DbSet<OwnerNotificationJob> OwnerNotificationJobs => Set<OwnerNotificationJob>();
     public DbSet<PriceCatalogueEntry> PriceCatalogueEntries => Set<PriceCatalogueEntry>();
     public DbSet<AutomationControl> AutomationControls => Set<AutomationControl>();
+    public DbSet<OwnerQuotationApproval> OwnerQuotationApprovals => Set<OwnerQuotationApproval>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -69,6 +70,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         requirement.Property(x => x.CustomDiscountRequested).HasColumnName("custom_discount_requested");
         requirement.Property(x => x.NonStandardTermsRequested).HasColumnName("non_standard_terms_requested");
         requirement.Property(x => x.DeliveryPromiseRequired).HasColumnName("delivery_promise_required");
+        requirement.Property(x => x.InstallationRequired).HasColumnName("installation_required");
         requirement.Property(x => x.ValidationFlagsJson).HasColumnName("validation_flags_json").HasColumnType("jsonb");
         requirement.Property(x => x.CapturedAtUtc).HasColumnName("captured_at_utc");
         requirement.Ignore(x => x.IsComplete);
@@ -90,6 +92,9 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         quotation.Property(x => x.GensetModel).HasColumnName("genset_model").HasMaxLength(120);
         quotation.Property(x => x.Kva).HasColumnName("kva").HasPrecision(10, 2);
         quotation.Property(x => x.PhaseCount).HasColumnName("phase_count");
+        quotation.Property(x => x.SellingPrice).HasColumnName("selling_price").HasPrecision(14, 2);
+        quotation.Property(x => x.TransportCharge).HasColumnName("transport_charge").HasPrecision(14, 2);
+        quotation.Property(x => x.InstallationCharge).HasColumnName("installation_charge").HasPrecision(14, 2);
         quotation.Property(x => x.Subtotal).HasColumnName("subtotal").HasPrecision(14, 2);
         quotation.Property(x => x.GstAmount).HasColumnName("gst_amount").HasPrecision(14, 2);
         quotation.Property(x => x.GrandTotal).HasColumnName("grand_total").HasPrecision(14, 2);
@@ -172,5 +177,11 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
 
         var control = modelBuilder.Entity<AutomationControl>(); control.ToTable("automation_controls"); control.HasKey(x => x.Name);
         control.Property(x => x.Name).HasColumnName("name").HasMaxLength(40); control.Property(x => x.IsPaused).HasColumnName("is_paused"); control.Property(x => x.Reason).HasColumnName("reason").HasMaxLength(500); control.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
+
+        var approval = modelBuilder.Entity<OwnerQuotationApproval>(); approval.ToTable("owner_quotation_approvals"); approval.HasKey(x => x.Id);
+        approval.Property(x => x.Id).HasColumnName("id"); approval.Property(x => x.LeadId).HasColumnName("lead_id"); approval.Property(x => x.RequirementId).HasColumnName("requirement_id"); approval.HasIndex(x => x.RequirementId).IsUnique(); approval.Property(x => x.QuotationId).HasColumnName("quotation_id"); approval.HasIndex(x => x.QuotationId).IsUnique();
+        approval.Property(x => x.RequestCode).HasColumnName("request_code").HasMaxLength(20); approval.HasIndex(x => x.RequestCode).IsUnique(); approval.Property(x => x.Brand).HasColumnName("brand").HasMaxLength(100); approval.Property(x => x.GensetModel).HasColumnName("genset_model").HasMaxLength(120); approval.Property(x => x.Kva).HasColumnName("kva").HasPrecision(10, 2); approval.Property(x => x.PhaseCount).HasColumnName("phase_count"); approval.Property(x => x.InstallationRequired).HasColumnName("installation_required");
+        approval.Property(x => x.SellingPrice).HasColumnName("selling_price").HasPrecision(14, 2); approval.Property(x => x.TransportCharge).HasColumnName("transport_charge").HasPrecision(14, 2); approval.Property(x => x.InstallationCharge).HasColumnName("installation_charge").HasPrecision(14, 2); approval.Property(x => x.GstPercent).HasColumnName("gst_percent").HasPrecision(5, 2);
+        approval.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(40); approval.Property(x => x.ProviderMessageId).HasColumnName("provider_message_id").HasMaxLength(150); approval.Property(x => x.OwnerReply).HasColumnName("owner_reply").HasMaxLength(2000); approval.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(1000); approval.Property(x => x.AttemptCount).HasColumnName("attempt_count"); approval.Property(x => x.ScheduledAtUtc).HasColumnName("scheduled_at_utc"); approval.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc"); approval.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc"); approval.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
     }
 }

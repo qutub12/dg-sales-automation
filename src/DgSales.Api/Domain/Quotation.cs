@@ -1,6 +1,6 @@
 namespace DgSales.Api.Domain;
 
-public enum QuotationStatus { Generated, Sent, ReviewRequired, Superseded }
+public enum QuotationStatus { Generated, AwaitingOwnerApproval, Approved, Sent, ReviewRequired, Superseded }
 
 public sealed class Quotation
 {
@@ -15,6 +15,9 @@ public sealed class Quotation
     public string GensetModel { get; private set; } = string.Empty;
     public decimal Kva { get; private set; }
     public int PhaseCount { get; private set; }
+    public decimal SellingPrice { get; private set; }
+    public decimal TransportCharge { get; private set; }
+    public decimal InstallationCharge { get; private set; }
     public decimal Subtotal { get; private set; }
     public decimal GstAmount { get; private set; }
     public decimal GrandTotal { get; private set; }
@@ -23,7 +26,8 @@ public sealed class Quotation
 
     public static Quotation Generate(
         Guid leadId, Guid requirementId, string priceVersion, string brand, string gensetModel,
-        decimal kva, int phaseCount, decimal subtotal, decimal gstAmount, decimal grandTotal) => new()
+        decimal kva, int phaseCount, decimal sellingPrice, decimal transportCharge,
+        decimal installationCharge, decimal subtotal, decimal gstAmount, decimal grandTotal) => new()
     {
         LeadId = leadId,
         RequirementId = requirementId,
@@ -33,6 +37,9 @@ public sealed class Quotation
         GensetModel = gensetModel,
         Kva = kva,
         PhaseCount = phaseCount,
+        SellingPrice = sellingPrice,
+        TransportCharge = transportCharge,
+        InstallationCharge = installationCharge,
         Subtotal = subtotal,
         GstAmount = gstAmount,
         GrandTotal = grandTotal,
@@ -40,4 +47,12 @@ public sealed class Quotation
     };
 
     public void MarkSent() => Status = QuotationStatus.Sent;
+    public void MarkAwaitingOwnerApproval() => Status = QuotationStatus.AwaitingOwnerApproval;
+    public void MarkApproved()
+    {
+        if (Status != QuotationStatus.AwaitingOwnerApproval)
+            throw new InvalidOperationException("Only a quotation awaiting owner approval can be approved.");
+        Status = QuotationStatus.Approved;
+    }
+    public void MarkReviewRequired() => Status = QuotationStatus.ReviewRequired;
 }

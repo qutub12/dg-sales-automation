@@ -27,6 +27,8 @@ builder.Services.AddSingleton<ServiceAreaMatcher>();
 builder.Services.AddSingleton<GeneratorSizingService>();
 builder.Services.AddSingleton<QuotationEligibilityService>();
 builder.Services.AddSingleton<StandardQuotationCalculator>();
+builder.Services.AddSingleton<OwnerQuotationReplyParser>();
+builder.Services.AddScoped<OwnerQuotationWorkflowService>();
 builder.Services.AddSingleton<FollowUpScheduleService>();
 builder.Services.AddSingleton<ReferenceCatalogueService>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -39,6 +41,7 @@ builder.Services.AddHttpClient<IWhatsAppProvider, MetaWhatsAppProvider>(client =
 builder.Services.AddHostedService<WhatsAppDeliveryWorker>();
 builder.Services.AddHostedService<FollowUpDeliveryWorker>();
 builder.Services.AddHostedService<OwnerNotificationWorker>();
+builder.Services.AddHostedService<OwnerQuotationApprovalWorker>();
 builder.Services.AddSingleton<WhatsAppWebhookService>();
 builder.Services.AddSingleton<VoiceAgentInstructions>();
 builder.Services.AddSingleton<VoiceWebhookSignatureService>();
@@ -180,7 +183,9 @@ app.MapPost("/api/webhooks/whatsapp", async (HttpRequest request, WhatsAppWebhoo
     foreach (var message in webhook.ReadMessages(body))
     {
         await using var scope = scopes.CreateAsyncScope();
-        var handled = await scope.ServiceProvider.GetRequiredService<CustomerReplyService>()
+        var handled = await scope.ServiceProvider.GetRequiredService<OwnerQuotationWorkflowService>()
+            .ProcessOwnerReplyAsync(message.Id, message.From, message.Text, cancellationToken);
+        if (!handled) handled = await scope.ServiceProvider.GetRequiredService<CustomerReplyService>()
             .ProcessAsync(message.Id, message.From, message.Text, cancellationToken);
         if (!handled && configuration.GetValue<bool>("LeadIntake:Justdial:Enabled")
             && allowedDigits.Contains(new string(message.From.Where(char.IsDigit).ToArray())))
@@ -276,44 +281,18 @@ app.MapGet("/api/leads/{id:guid}/requirements", async (Guid id, SalesDbContext d
         .ToListAsync(cancellationToken)));
 
 app.MapPost("/api/leads/{leadId:guid}/requirements/{requirementId:guid}/quotation", async (
-    Guid leadId, Guid requirementId, SalesDbContext db, ApprovedPriceCatalogueService prices,
-    QuotationEligibilityService eligibility, StandardQuotationCalculator calculator, CancellationToken cancellationToken) =>
+    Guid leadId, Guid requirementId, SalesDbContext db,
+    OwnerQuotationWorkflowService workflow, CancellationToken cancellationToken) =>
 {
     var requirement = await db.CustomerRequirements.SingleOrDefaultAsync(
         x => x.Id == requirementId && x.LeadId == leadId, cancellationToken);
     if (requirement is null) return Results.NotFound();
-
-    var existingQuotation = await db.Quotations.AsNoTracking()
-        .SingleOrDefaultAsync(x => x.RequirementId == requirementId, cancellationToken);
-    if (existingQuotation is not null)
-        return Results.Ok(new { quotation = existingQuotation, duplicate = true });
-
-    var price = requirement.RequestedKva is { } kva
-        ? prices.Find(kva, requirement.PhaseCount, requirement.PreferredBrand)
-        : null;
-    var assessment = eligibility.Assess(new(
-        requirement.IsComplete,
-        requirement.SizingConfirmed,
-        price is not null,
-        price is not null,
-        requirement.CustomDiscountRequested,
-        requirement.NonStandardTermsRequested,
-        requirement.DeliveryPromiseRequired,
-        requirement.HasValidationFlags));
-    if (!assessment.CanSendAutomatically)
-        return Results.Conflict(new { status = "ReviewRequired", assessment.ReviewReasons });
-
-    var calculated = calculator.Calculate(new(
-        price!.BasePrice, price.StandardMarkup, price.TransportCharge,
-        price.InstallationCharge, price.AccessoryCharge, price.GstPercent));
-    if (!calculated.IsValid) return Results.Conflict(new { status = "ReviewRequired", calculated.Errors });
-
-    var quotation = Quotation.Generate(
-        leadId, requirementId, price.Version, price.Brand, price.GensetModel,
-        price.Kva, price.PhaseCount, calculated.Subtotal, calculated.GstAmount, calculated.GrandTotal);
-    db.Quotations.Add(quotation);
-    await db.SaveChangesAsync(cancellationToken);
-    return Results.Created($"/api/quotations/{quotation.Id}", new { quotation, duplicate = false });
+    var lead = await db.Leads.SingleAsync(x => x.Id == leadId, cancellationToken);
+    var result = await workflow.QueueAsync(lead, requirement, cancellationToken);
+    if (result.Error is not null) return Results.Conflict(new { status = "ReviewRequired", error = result.Error });
+    return result.Duplicate
+        ? Results.Ok(new { ownerRequest = result.Request, duplicate = true })
+        : Results.Accepted($"/api/owner-quotation-approvals/{result.Request!.Id}", new { ownerRequest = result.Request, duplicate = false });
 });
 
 app.MapGet("/api/quotations/{id:guid}", async (Guid id, SalesDbContext db, CancellationToken cancellationToken) =>
@@ -326,6 +305,8 @@ app.MapPost("/api/quotations/{id:guid}/whatsapp-delivery", async (
 {
     var quotation = await db.Quotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
     if (quotation is null) return Results.NotFound();
+    if (quotation.Status != QuotationStatus.Approved)
+        return Results.Conflict(new { error = "Owner WhatsApp approval is required before customer delivery." });
     var existing = await db.WhatsAppDeliveryJobs.AsNoTracking()
         .SingleOrDefaultAsync(x => x.QuotationId == id && x.Status == WhatsAppDeliveryStatus.Queued, cancellationToken);
     if (existing is not null) return Results.Ok(new { deliveryJob = existing, duplicate = true });

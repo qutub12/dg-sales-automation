@@ -11,6 +11,9 @@
     "installation": "Customer scope unless separately requested and owner-approved",
     "unloading": "Customer scope",
     "priceApprovalRequired": true,
+    "ownerPricingInputs": ["sellingPriceBeforeGst", "transportCharge", "installationChargeWhenApplicable"],
+    "gstCalculatedAutomatically": true,
+    "customerDeliveryRequiresCodedWhatsAppApproval": true,
     "stockAndDeliveryConfirmationRequired": true
   },
   "warranty": {

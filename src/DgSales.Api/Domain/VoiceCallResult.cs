@@ -15,11 +15,13 @@ public sealed class VoiceCallResult
     public bool AutomationDisclosed { get; private set; }
     public bool RecordingConsentGiven { get; private set; }
     public string? Transcript { get; private set; }
+    public DateTimeOffset? RequestedCallbackAtUtc { get; private set; }
     public DateTimeOffset CompletedAtUtc { get; private set; } = DateTimeOffset.UtcNow;
 
     public static VoiceCallResult Capture(
         Guid callJobId, Guid leadId, string providerCallId, VoiceCallOutcome outcome,
-        PreferredLanguage language, bool automationDisclosed, bool recordingConsentGiven, string? transcript) => new()
+        PreferredLanguage language, bool automationDisclosed, bool recordingConsentGiven, string? transcript,
+        DateTimeOffset? requestedCallbackAtUtc = null) => new()
     {
         CallJobId = callJobId,
         LeadId = leadId,
@@ -28,6 +30,7 @@ public sealed class VoiceCallResult
         DetectedLanguage = language,
         AutomationDisclosed = automationDisclosed,
         RecordingConsentGiven = recordingConsentGiven,
-        Transcript = string.IsNullOrWhiteSpace(transcript) ? null : transcript.Trim()
+        Transcript = string.IsNullOrWhiteSpace(transcript) ? null : transcript.Trim(),
+        RequestedCallbackAtUtc = requestedCallbackAtUtc
     };
 }

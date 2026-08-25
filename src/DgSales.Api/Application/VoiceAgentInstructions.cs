@@ -14,6 +14,10 @@ public sealed class VoiceAgentInstructions(IConfiguration configuration)
         Standard supply expectation is approximately 15 days after a commercially clear order, but describe this
         only as indicative and subject to owner/manufacturer confirmation.
         If the customer asks for rental, immediately mark the lead for owner escalation.
+        If the customer says they are busy or asks to be called later (including "baad mein call karna"
+        or "nantar phone kara"), stop the sales questions immediately. Ask for a convenient date and time.
+        Confirm it briefly, call request_customer_callback exactly once, politely end the call, and do not
+        call submit_sales_requirement. Never try to keep a busy customer on the line.
         If the customer asks to stop calls or messages, acknowledge it and end the conversation.
         Mark uncertainty explicitly and tell the customer that a quotation or human callback will follow on WhatsApp.
         After the customer confirms the facts, call submit_sales_requirement exactly once. Use null requestedKva

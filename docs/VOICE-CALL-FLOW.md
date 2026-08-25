@@ -1,6 +1,8 @@
 # Voice call flow
 
 1. Confirm customer name and convenient time.
+   If the customer is busy or asks for a later call in Hindi, English or Marathi, stop qualification,
+   ask for a convenient callback time, confirm it, schedule it and end the call politely.
 2. Disclose that this is an automated sales assistant and that the call may be recorded.
 3. Detect Hindi, English or Marathi and allow language switching.
 4. Ask purchase versus rental.
@@ -12,6 +14,10 @@
 10. Confirm that the quotation will be sent on WhatsApp.
 
 The language model conducts the conversation but never calculates capacity or price. Those decisions belong to versioned application rules.
+Callback requests are persisted as `CustomerRequestedCallback`; the current call is completed and a new
+call job is scheduled. When no exact time is provided, the configurable default is two hours. The normal
+Monday-Saturday 10:00-19:00 IST calling-hours gate still applies, so an out-of-hours request waits until
+the next allowed calling window.
 
 ## Runtime integration
 

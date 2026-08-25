@@ -81,6 +81,25 @@ public sealed class OpenAiRealtimeVoiceBridge(
                                 "recordingConsentGiven", "detectedLanguage"
                             }
                         }
+                    },
+                    new
+                    {
+                        type = "function",
+                        name = "request_customer_callback",
+                        description = "Stop the sales conversation and schedule a callback when the customer is busy or asks to be called later.",
+                        parameters = new
+                        {
+                            type = "object",
+                            additionalProperties = false,
+                            properties = new
+                            {
+                                callbackAtUtc = new { type = new[] { "string", "null" }, description = "Confirmed callback time as ISO 8601 UTC, or null when the customer gives no time." },
+                                requestedTimeText = new { type = "string" },
+                                detectedLanguage = new { type = "string", @enum = new[] { "Hindi", "English", "Marathi", "Mixed" } },
+                                automationDisclosed = new { type = "boolean" }
+                            },
+                            required = new[] { "callbackAtUtc", "requestedTimeText", "detectedLanguage", "automationDisclosed" }
+                        }
                     }
                 },
                 tool_choice = "auto"
@@ -192,18 +211,24 @@ public sealed class OpenAiRealtimeVoiceBridge(
             || !response.TryGetProperty("output", out var output)) return;
         foreach (var item in output.EnumerateArray())
         {
-            if (GetString(item, "type") != "function_call" || GetString(item, "name") != "submit_sales_requirement") continue;
+            if (GetString(item, "type") != "function_call") continue;
+            var toolName = GetString(item, "name");
+            if (toolName is not "submit_sales_requirement" and not "request_customer_callback") continue;
             var callId = GetString(item, "call_id");
             var arguments = GetString(item, "arguments");
             if (string.IsNullOrWhiteSpace(callId) || string.IsNullOrWhiteSpace(arguments)) continue;
             await using var scope = scopeFactory.CreateAsyncScope();
-            var tool = scope.ServiceProvider.GetRequiredService<VoiceRequirementToolService>();
-            VoiceRequirementToolResult result;
-            try { result = await tool.ExecuteAsync(providerCallId, arguments, cancellationToken); }
+            object result;
+            try
+            {
+                result = toolName == "request_customer_callback"
+                    ? await scope.ServiceProvider.GetRequiredService<VoiceCallbackToolService>().ExecuteAsync(providerCallId, arguments, cancellationToken)
+                    : await scope.ServiceProvider.GetRequiredService<VoiceRequirementToolService>().ExecuteAsync(providerCallId, arguments, cancellationToken);
+            }
             catch (Exception exception)
             {
-                logger.LogError(exception, "Voice requirement tool failed for call {ProviderCallId}.", providerCallId);
-                result = new(false, "review_required", null, ["The requirement could not be processed automatically."]);
+                logger.LogError(exception, "Voice tool {ToolName} failed for call {ProviderCallId}.", toolName, providerCallId);
+                result = new VoiceRequirementToolResult(false, "review_required", null, ["The voice request could not be processed automatically."]);
             }
             await SendJsonAsync(realtime, new
             {

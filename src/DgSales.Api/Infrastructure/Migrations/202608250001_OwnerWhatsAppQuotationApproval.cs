@@ -13,6 +13,7 @@ public sealed class OwnerWhatsAppQuotationApproval : Migration
         migrationBuilder.AddColumn<decimal>("transport_charge", "quotations", "numeric(14,2)", nullable: false, defaultValue: 0m);
         migrationBuilder.AddColumn<decimal>("installation_charge", "quotations", "numeric(14,2)", nullable: false, defaultValue: 0m);
         migrationBuilder.AddColumn<bool>("installation_required", "customer_requirements", "boolean", nullable: false, defaultValue: false);
+        migrationBuilder.AddColumn<DateTimeOffset>("requested_callback_at_utc", "voice_call_results", "timestamp with time zone", nullable: true);
         migrationBuilder.CreateTable("owner_quotation_approvals", table => new
         {
             id = table.Column<Guid>("uuid"), lead_id = table.Column<Guid>("uuid"), requirement_id = table.Column<Guid>("uuid"), quotation_id = table.Column<Guid>("uuid", nullable: true),
@@ -32,5 +33,6 @@ public sealed class OwnerWhatsAppQuotationApproval : Migration
         migrationBuilder.DropColumn("transport_charge", "quotations");
         migrationBuilder.DropColumn("installation_charge", "quotations");
         migrationBuilder.DropColumn("installation_required", "customer_requirements");
+        migrationBuilder.DropColumn("requested_callback_at_utc", "voice_call_results");
     }
 }

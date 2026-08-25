@@ -132,6 +132,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         callResult.Property(x => x.AutomationDisclosed).HasColumnName("automation_disclosed");
         callResult.Property(x => x.RecordingConsentGiven).HasColumnName("recording_consent_given");
         callResult.Property(x => x.Transcript).HasColumnName("transcript");
+        callResult.Property(x => x.RequestedCallbackAtUtc).HasColumnName("requested_callback_at_utc");
         callResult.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
 
         var inbound = modelBuilder.Entity<InboundLeadMessage>();

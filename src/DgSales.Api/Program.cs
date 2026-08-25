@@ -6,6 +6,8 @@ using DgSales.Api.Integrations.IndiaMart;
 using DgSales.Api.Integrations.Justdial;
 using DgSales.Api.Integrations.Voice;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
@@ -32,6 +34,14 @@ builder.Services.AddScoped<OwnerQuotationWorkflowService>();
 builder.Services.AddSingleton<FollowUpScheduleService>();
 builder.Services.AddSingleton<ReferenceCatalogueService>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<LaunchReadinessService>();
+builder.Services.AddRateLimiter(options => options.AddFixedWindowLimiter("admin-login", limiter =>
+{
+    limiter.PermitLimit = 5;
+    limiter.Window = TimeSpan.FromMinutes(15);
+    limiter.QueueLimit = 0;
+    limiter.AutoReplenishment = true;
+}));
 builder.Services.AddScoped<ApprovedPriceCatalogueService>();
 builder.Services.AddSingleton<AdminSessionService>();
 builder.Services.AddSingleton<QuotationPdfService>();
@@ -55,8 +65,19 @@ builder.Services.AddHostedService<VoiceCallWorker>();
 builder.Services.AddSingleton<OpenAiRealtimeVoiceBridge>();
 builder.Services.AddScoped<VoiceRequirementToolService>();
 builder.Services.AddScoped<VoiceCallbackToolService>();
+builder.Services.AddHostedService<RecordingRetentionWorker>();
 
 var app = builder.Build();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'";
+    await next();
+});
+app.UseRateLimiter();
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
 app.UseDefaultFiles();
 app.Use(async (context, next) =>
@@ -84,7 +105,7 @@ app.MapPost("/api/admin/session", (AdminLoginRequest request, AdminSessionServic
     response.Cookies.Append(AdminSessionService.CookieName, sessions.CreateToken(), new CookieOptions
         { HttpOnly = true, Secure = configuration.GetValue("Admin:SecureCookies", true), SameSite = SameSiteMode.Strict, MaxAge = TimeSpan.FromHours(8), Path = "/" });
     return Results.Ok();
-});
+}).RequireRateLimiting("admin-login");
 app.MapDelete("/api/admin/session", (HttpResponse response) => { response.Cookies.Delete(AdminSessionService.CookieName); return Results.Ok(); });
 
 app.MapGet("/api/admin/dashboard", async (SalesDbContext db, CancellationToken ct) => Results.Ok(new
@@ -95,6 +116,22 @@ app.MapGet("/api/admin/dashboard", async (SalesDbContext db, CancellationToken c
     reviewRequired = await db.InboundLeadMessages.CountAsync(x => x.Status == InboundLeadStatus.ReviewRequired, ct),
     ownerEscalations = await db.OwnerNotificationJobs.CountAsync(x => x.Status != OwnerNotificationStatus.Sent, ct),
     recentLeads = await db.Leads.AsNoTracking().OrderByDescending(x => x.CreatedAtUtc).Take(30).ToListAsync(ct)
+}));
+app.MapGet("/api/admin/launch-readiness", (LaunchReadinessService readiness) =>
+{
+    var report = readiness.Assess();
+    return report.Ready ? Results.Ok(report) : Results.Json(report, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
+app.MapGet("/api/admin/operations-health", async (SalesDbContext db, CancellationToken ct) => Results.Ok(new
+{
+    checkedAtUtc = DateTimeOffset.UtcNow,
+    failedCalls = await db.CallJobs.CountAsync(x => x.Status == CallJobStatus.Failed, ct),
+    failedWhatsAppDeliveries = await db.WhatsAppDeliveryJobs.CountAsync(x => x.Status == WhatsAppDeliveryStatus.Failed, ct),
+    failedFollowUps = await db.FollowUpJobs.CountAsync(x => x.Status == FollowUpStatus.Failed, ct),
+    failedOwnerPricingRequests = await db.OwnerQuotationApprovals.CountAsync(x => x.Status == OwnerQuotationApprovalStatus.Failed, ct),
+    oldestQueuedCallUtc = await db.CallJobs.Where(x => x.Status == CallJobStatus.Queued).MinAsync(x => (DateTimeOffset?)x.ScheduledAtUtc, ct),
+    oldestQueuedWhatsAppUtc = await db.WhatsAppDeliveryJobs.Where(x => x.Status == WhatsAppDeliveryStatus.Queued).MinAsync(x => (DateTimeOffset?)x.ScheduledAtUtc, ct),
+    unresolvedLeadMessages = await db.InboundLeadMessages.CountAsync(x => x.Status == InboundLeadStatus.ReviewRequired, ct)
 }));
 app.MapGet("/api/admin/leads", async (string? query, LeadStatus? status, SalesDbContext db, CancellationToken ct) =>
 {
@@ -141,6 +178,18 @@ app.MapPost("/api/admin/calls/{id:guid}/retry", async (Guid id, SalesDbContext d
 app.MapPost("/api/admin/follow-ups/{id:guid}/retry", async (Guid id, SalesDbContext db, TimeProvider clock, CancellationToken ct) =>
 {
     var job = await db.FollowUpJobs.FindAsync([id], ct); if (job is null) return Results.NotFound(); if (job.Status != FollowUpStatus.Failed) return Results.Conflict(new { error = "Only failed follow-ups can be retried." }); job.MarkFailed("Manual retry requested.", true, clock.GetUtcNow()); await db.SaveChangesAsync(ct); return Results.Ok(job);
+});
+app.MapPost("/api/admin/whatsapp-deliveries/{id:guid}/retry", async (Guid id, SalesDbContext db, TimeProvider clock, CancellationToken ct) =>
+{
+    var job = await db.WhatsAppDeliveryJobs.FindAsync([id], ct); if (job is null) return Results.NotFound();
+    if (job.Status != WhatsAppDeliveryStatus.Failed) return Results.Conflict(new { error = "Only failed WhatsApp deliveries can be retried." });
+    job.MarkFailed("Manual retry requested.", true, clock.GetUtcNow()); await db.SaveChangesAsync(ct); return Results.Ok(job);
+});
+app.MapPost("/api/admin/owner-quotation-approvals/{id:guid}/retry", async (Guid id, SalesDbContext db, TimeProvider clock, CancellationToken ct) =>
+{
+    var approval = await db.OwnerQuotationApprovals.FindAsync([id], ct); if (approval is null) return Results.NotFound();
+    if (approval.Status != OwnerQuotationApprovalStatus.Failed) return Results.Conflict(new { error = "Only failed owner quotation requests can be retried." });
+    approval.Retry(clock.GetUtcNow()); await db.SaveChangesAsync(ct); return Results.Ok(approval);
 });
 
 app.MapGet("/api/admin/prices", async (SalesDbContext db, CancellationToken ct) =>
@@ -199,6 +248,19 @@ app.MapGet("/health/ready", async (SalesDbContext db, CancellationToken cancella
     await db.Database.CanConnectAsync(cancellationToken)
         ? Results.Ok(new { status = "ready" })
         : Results.Problem("Database is unavailable.", statusCode: 503));
+app.MapGet("/health/operations", async (SalesDbContext db, TimeProvider clock, CancellationToken ct) =>
+{
+    var now = clock.GetUtcNow();
+    var failures = await db.WhatsAppDeliveryJobs.CountAsync(x => x.Status == WhatsAppDeliveryStatus.Failed, ct)
+        + await db.FollowUpJobs.CountAsync(x => x.Status == FollowUpStatus.Failed, ct)
+        + await db.OwnerQuotationApprovals.CountAsync(x => x.Status == OwnerQuotationApprovalStatus.Failed, ct);
+    var stale = await db.CallJobs.AnyAsync(x => x.Status == CallJobStatus.Queued && x.ScheduledAtUtc < now.AddHours(-2), ct)
+        || await db.WhatsAppDeliveryJobs.AnyAsync(x => x.Status == WhatsAppDeliveryStatus.Queued && x.ScheduledAtUtc < now.AddMinutes(-30), ct)
+        || await db.OwnerQuotationApprovals.AnyAsync(x => (x.Status == OwnerQuotationApprovalStatus.PricingRequestQueued || x.Status == OwnerQuotationApprovalStatus.ApprovalRequestQueued) && x.ScheduledAtUtc < now.AddMinutes(-30), ct);
+    return failures == 0 && !stale
+        ? Results.Ok(new { status = "healthy", checkedAtUtc = now })
+        : Results.Json(new { status = "degraded", checkedAtUtc = now, failedJobs = failures, staleQueues = stale }, statusCode: 503);
+});
 
 app.MapPost("/api/leads", async (CreateLeadRequest request, ILeadRepository repository, ServiceAreaMatcher serviceAreas, CancellationToken cancellationToken) =>
 {

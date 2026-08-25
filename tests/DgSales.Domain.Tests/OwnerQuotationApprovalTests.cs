@@ -17,4 +17,16 @@ public sealed class OwnerQuotationApprovalTests
         request.Approve($"APPROVE {request.RequestCode}");
         Assert.Equal(OwnerQuotationApprovalStatus.Approved, request.Status);
     }
+
+    [Fact]
+    public void FailedPricingRequestCanBeRetriedWithoutChangingItsCode()
+    {
+        var request = OwnerQuotationApproval.Queue(Guid.NewGuid(), Guid.NewGuid(), "Cummins", "C125", 125, 3, false);
+        var code = request.RequestCode;
+        request.MarkFailed("provider unavailable", false, DateTimeOffset.UtcNow);
+        request.Retry(DateTimeOffset.UtcNow.AddMinutes(1));
+        Assert.Equal(OwnerQuotationApprovalStatus.PricingRequestQueued, request.Status);
+        Assert.Equal(code, request.RequestCode);
+        Assert.Null(request.LastError);
+    }
 }

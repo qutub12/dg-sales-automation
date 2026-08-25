@@ -111,4 +111,16 @@ public sealed class OwnerQuotationApproval
         if (retry) ScheduledAtUtc = retryAtUtc; else Status = OwnerQuotationApprovalStatus.Failed;
         UpdatedAtUtc = DateTimeOffset.UtcNow;
     }
+
+    public void Retry(DateTimeOffset atUtc)
+    {
+        if (Status != OwnerQuotationApprovalStatus.Failed)
+            throw new InvalidOperationException("Only a failed owner quotation request can be retried.");
+        Status = QuotationId is null
+            ? OwnerQuotationApprovalStatus.PricingRequestQueued
+            : OwnerQuotationApprovalStatus.ApprovalRequestQueued;
+        ScheduledAtUtc = atUtc;
+        LastError = null;
+        UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
 }

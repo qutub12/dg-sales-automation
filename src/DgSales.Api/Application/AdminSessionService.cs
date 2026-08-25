@@ -7,8 +7,13 @@ public sealed class AdminSessionService(IConfiguration config, TimeProvider cloc
 {
     public const string CookieName = "dg_admin";
 
-    public bool ValidateCredentials(string username, string password) =>
-        Fixed(username, Required("Admin:Username")) && Fixed(password, Required("Admin:Password"));
+    public bool ValidateCredentials(string username, string password)
+    {
+        if (!Fixed(username, Required("Admin:Username"))) return false;
+        var hash = config["Admin:PasswordHash"];
+        if (!string.IsNullOrWhiteSpace(hash)) return AdminPasswordHasher.Verify(password, hash);
+        return !string.IsNullOrWhiteSpace(config["Admin:Password"]) && Fixed(password, config["Admin:Password"]!);
+    }
 
     public string CreateToken()
     {

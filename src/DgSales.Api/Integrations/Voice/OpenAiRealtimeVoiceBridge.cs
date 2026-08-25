@@ -46,7 +46,7 @@ public sealed class OpenAiRealtimeVoiceBridge(
                     output = new { format = new { type = "audio/pcm" }, voice }
                 },
                 instructions = instructions.Build("Hindi, with natural English and Marathi switching"),
-                tools = new[]
+                tools = new object[]
                 {
                     new
                     {

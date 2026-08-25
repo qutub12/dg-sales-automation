@@ -13,7 +13,8 @@ public sealed record QuotationBranding(
     string GstNumber,
     string Terms,
     string FontPath,
-    string? BoldFontPath);
+    string? BoldFontPath,
+    string? LogoPath);
 
 public sealed class QuotationPdfService(IConfiguration configuration)
 {
@@ -39,8 +40,15 @@ public sealed class QuotationPdfService(IConfiguration configuration)
         var accent = XColor.FromArgb(16, 92, 77);
 
         graphics.DrawRectangle(new XSolidBrush(accent), 0, 0, page.Width.Point, 92);
-        graphics.DrawString(branding.CompanyName, heading, XBrushes.White, new XRect(42, 25, 510, 28), XStringFormats.TopLeft);
-        graphics.DrawString("DIESEL GENERATOR QUOTATION", subheading, XBrushes.White, new XRect(42, 57, 510, 20), XStringFormats.TopLeft);
+        var titleX = 42d;
+        if (!string.IsNullOrWhiteSpace(branding.LogoPath) && File.Exists(branding.LogoPath))
+        {
+            using var logo = XImage.FromFile(branding.LogoPath);
+            graphics.DrawImage(logo, 42, 18, 105, 53);
+            titleX = 166;
+        }
+        graphics.DrawString(branding.CompanyName, heading, XBrushes.White, new XRect(titleX, 25, 387, 28), XStringFormats.TopLeft);
+        graphics.DrawString("DIESEL GENERATOR QUOTATION", subheading, XBrushes.White, new XRect(titleX, 57, 387, 20), XStringFormats.TopLeft);
 
         var y = 118d;
         DrawPair(graphics, regular, dark, "Quotation No.", quotation.QuotationNumber, 42, y);
@@ -99,7 +107,8 @@ public sealed class QuotationPdfService(IConfiguration configuration)
             section["GstNumber"] ?? string.Empty,
             section["Terms"] ?? "Price and delivery are subject to the approved quotation terms.",
             fontPath,
-            section["BoldFontPath"]);
+            section["BoldFontPath"],
+            section["LogoPath"]);
     }
 
     private static void EnsureFontResolver(string regularPath, string? boldPath)

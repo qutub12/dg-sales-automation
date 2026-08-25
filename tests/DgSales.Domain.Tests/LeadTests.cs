@@ -40,4 +40,20 @@ public sealed class LeadTests
         escalated.MarkEscalated();
         Assert.Equal(LeadStatus.Escalated, escalated.Status);
     }
+
+    [Fact]
+    public void ManualLeadRequiresScheduledTimeForLaterCall()
+    {
+        var request = new CreateManualLeadRequest("Customer", "9876543210", "Nagpur",
+            PreferredLanguage.Hindi, "Referral", "later", null);
+        Assert.Equal("Scheduled call time is required.", request.Validate(DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void ManualLeadAcceptsImmediateCall()
+    {
+        var request = new CreateManualLeadRequest("Customer", "9876543210", "Nagpur",
+            PreferredLanguage.Marathi, null, "now", null);
+        Assert.Null(request.Validate(DateTimeOffset.UtcNow));
+    }
 }

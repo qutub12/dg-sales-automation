@@ -140,6 +140,31 @@ app.MapGet("/api/admin/leads", async (string? query, LeadStatus? status, SalesDb
     if (status is not null) leads = leads.Where(x => x.Status == status);
     return Results.Ok(await leads.OrderByDescending(x => x.CreatedAtUtc).Take(200).ToListAsync(ct));
 });
+app.MapPost("/api/admin/leads/manual", async (CreateManualLeadRequest request, SalesDbContext db,
+    ServiceAreaMatcher serviceAreas, TimeProvider clock, CancellationToken ct) =>
+{
+    var now = clock.GetUtcNow();
+    if (request.Validate(now) is { } error) return Results.BadRequest(new { error });
+    var normalized = Lead.NormalizePhone(request.Phone);
+    var existing = await db.Leads.AsNoTracking().SingleOrDefaultAsync(x => x.Phone == normalized, ct);
+    if (existing is not null) return Results.Ok(new { lead = existing, callJob = (CallJob?)null, duplicate = true });
+
+    var lead = Lead.Create(new(request.CustomerName, request.Phone, request.City,
+        LeadSource.Manual, request.SourceReference), serviceAreas.IsSupported(request.City));
+    lead.SetPreferredLanguage(request.PreferredLanguage);
+    CallJob? callJob = null;
+    if (request.CallAction is "now" or "later")
+    {
+        lead.QueueCall();
+        var scheduled = request.CallAction == "later" && request.ScheduledAtUtc > now ? request.ScheduledAtUtc : now;
+        callJob = CallJob.Queue(lead.Id, scheduled);
+        db.CallJobs.Add(callJob);
+    }
+    db.Leads.Add(lead);
+    try { await db.SaveChangesAsync(ct); }
+    catch (DbUpdateException) { return Results.Conflict(new { error = "A lead with this phone number already exists." }); }
+    return Results.Created($"/api/leads/{lead.Id}", new { lead, callJob, duplicate = false });
+});
 app.MapGet("/api/admin/leads/{id:guid}/details", async (Guid id, SalesDbContext db, CancellationToken ct) =>
 {
     var lead = await db.Leads.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (lead is null) return Results.NotFound();

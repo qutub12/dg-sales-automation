@@ -4,6 +4,21 @@ public enum LeadSource { IndiaMartEmail, IndiaMartApi, JustdialWhatsApp, Manual 
 public enum LeadStatus { New, CallQueued, Calling, Qualified, QuotationPending, QuotationSent, FollowUp, Won, Lost, Escalated }
 public enum PreferredLanguage { Unknown, Hindi, English, Marathi, Mixed }
 public sealed record UpdateLeadRequest(string CustomerName, string Phone, string? City);
+public sealed record CreateManualLeadRequest(
+    string CustomerName, string Phone, string City, PreferredLanguage PreferredLanguage,
+    string? SourceReference, string CallAction, DateTimeOffset? ScheduledAtUtc)
+{
+    public string? Validate(DateTimeOffset now)
+    {
+        var error = new CreateLeadRequest(CustomerName, Phone, City, LeadSource.Manual, SourceReference).Validate();
+        if (error is not null) return error;
+        if (string.IsNullOrWhiteSpace(City)) return "City is required.";
+        if (CallAction is not "now" and not "later" and not "none") return "Call action must be now, later or none.";
+        if (CallAction == "later" && ScheduledAtUtc is null) return "Scheduled call time is required.";
+        if (ScheduledAtUtc > now.AddDays(30)) return "A call cannot be scheduled more than 30 days ahead.";
+        return null;
+    }
+}
 
 public sealed record CreateLeadRequest(
     string CustomerName,
